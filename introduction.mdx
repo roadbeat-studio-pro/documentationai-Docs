@@ -1,78 +1,95 @@
 ---
-title: Set Up Your Documentation
-description: 'A minimal, editable starting point for your own documentation site.'
+title: Introduction
+description: roadbeat Studio Pro extends the open-source Studio CE with 20 professional plugins for editorial teams, enterprises, and agencies.
 ---
-## Start here (5–10 minutes)
 
-1. Edit this page so it describes your product and audience.
+**roadbeat Studio Pro** extends the open-source [Studio Community Edition](https://docs.studio.roadbeat.dev) with 20 professional plugins for editorial workflows, advanced security, real-time collaboration, and enterprise integrations.
 
-2. Customize your onboarding flow in the [Quickstart](/quickstart) page.
-
-3. Delete or rewrite any sections and pages you do not plan to use.
-
-4. Invite a teammate to review the structure and concepts starting from [Core Concepts](/concepts).
-
-<Callout kind="alert" collapsed="false">
-  This site ships with placeholder content. Edit the text, links, and examples so they match your product before sharing it with others.
+<Callout kind="info">
+  Studio Pro plugins are loaded at runtime into the CE application. They never modify CE code — CE remains fully functional even if the Pro license expires.
 </Callout>
 
-## What you get
+## Plugin Overview
 
-<Columns cols="3">
-  <Card title="Docs structure" href="/quickstart" icon="book-open" horizontal="false">
-    A clear navigation layout with starter pages you can rename or replace.
+<Columns cols={3}>
+  <Card title="Workflows & Publishing" icon="git-branch" href="/plugins/workflows">
+    Editorial approval workflows, content scheduling, locking, and shareable preview links.
   </Card>
-
-  <Card title="Components" href="#try-a-few-components" icon="layout-grid" horizontal="false" target="_self">
-    Prebuilt blocks like Callouts, Steps, Tabs, and Cards to keep pages clean.
+  <Card title="Content Tools" icon="wrench" href="/plugins/import">
+    CSV/JSON import and export, side-by-side version comparison, and custom layout builder.
   </Card>
-
-  <Card title="API reference hook" href="/authentication" icon="code" horizontal="false">
-    A placeholder `openapi.yaml` you can swap with your real API spec.
+  <Card title="Security & Access" icon="shield" href="/plugins/advanced-roles">
+    Granular per-content-type permissions, custom roles, SSO (SAML/OIDC/SCIM), and full audit trail.
+  </Card>
+  <Card title="Integrations" icon="plug" href="/plugins/graphql">
+    Auto-generated GraphQL API, WebSocket real-time collaboration, advanced webhooks, and notifications.
+  </Card>
+  <Card title="Infrastructure" icon="server" href="/plugins/environments">
+    Dev/staging/prod environments, bulk asset operations, video processing, and white-labeling.
+  </Card>
+  <Card title="API Explorer" icon="terminal" href="/plugins/api-explorer">
+    Interactive API testing UI with endpoint catalog, request execution, cURL export, and history.
   </Card>
 </Columns>
 
-## Make your first edit
+## All 20 Plugins
+
+| Plugin | Description |
+|--------|-------------|
+| **[Editorial Workflows](/plugins/workflows)** | Configurable states, transitions, approvals, task assignment, publish guards |
+| **[Content Scheduling](/plugins/scheduling)** | Scheduled publish/unpublish/archive, releases, calendar view |
+| **[Content Locking](/plugins/locking)** | Pessimistic locking with heartbeat, advisory and exclusive modes |
+| **[Preview API](/plugins/preview)** | Secure preview tokens, shareable URLs with password protection |
+| **[Content Import](/plugins/import)** | CSV/JSON import with field mapping, preview, rollback |
+| **[Content Export](/plugins/export)** | CSV/JSON export with templates and transforms |
+| **[Version Comparison](/plugins/versioning)** | Side-by-side diffs with field-level and word-level changes |
+| **[Custom Layouts](/plugins/layouts)** | Layout builder with versioning, import/export, Git sync |
+| **[Advanced Roles](/plugins/advanced-roles)** | Per-content-type permissions, custom roles, role editor |
+| **[SSO Integration](/plugins/sso)** | SAML 2.0, OAuth 2.0/OIDC, SCIM 2.0 user provisioning |
+| **[Audit Logging](/plugins/audit)** | Immutable audit trail, compliance reports, retention policies |
+| **[GraphQL API](/plugins/graphql)** | Auto-generated schema from content types, dynamic queries |
+| **[Real-time](/plugins/realtime)** | WebSocket presence, cursor sharing, live event broadcasting |
+| **[Advanced Webhooks](/plugins/webhooks)** | Retry with backoff, dead letter queue, incoming webhooks |
+| **[Notifications](/plugins/notifications)** | In-app + Slack/Teams/Discord, preferences, digest support |
+| **[Environments](/plugins/environments)** | Dev/staging/prod with content promotion, sync, cloning |
+| **[Bulk Asset Ops](/plugins/bulk-ops)** | Bulk move, delete, tag, and download assets |
+| **[Video Processing](/plugins/media)** | Transcoding jobs, thumbnail generation, profiles |
+| **[White-Labeling](/plugins/whitelabel)** | Custom branding, color themes, accessibility settings |
+| **[API Explorer](/plugins/api-explorer)** | Interactive endpoint catalog, request execution, history |
+
+## How It Works
+
+```mermaid
+graph LR
+    CE[Studio CE<br/>AGPL 3.0] -->|defines| SDK[@roadbeat/plugin-sdk]
+    SDK -->|implements| Pro[Studio Pro Plugins<br/>20 modules]
+    Pro -->|loaded at runtime| CE
+    License[License Key<br/>Ed25519 JWT] -->|validates| CE
+```
 
 <Steps>
-  <Step title="Rewrite this page" icon="edit" title-type="p">
-    Update the title, description, and sections in `introduction` so they reflect your product and documentation goals.
+  <Step title="Set license key" icon="key">
+    Set the `ROADBEAT_LICENSE_KEY` environment variable with your Ed25519-signed JWT token.
   </Step>
-
-  <Step title="Customize Quickstart" icon="zap" title-type="p">
-    Replace the steps in `quickstart` with your real onboarding flow so new readers know exactly how to get started.
+  <Step title="Plugins load automatically" icon="plug">
+    CE's `PluginLoaderService` scans the plugins directory and loads all licensed plugins at startup.
   </Step>
-
-  <Step title="Remove or repurpose samples" icon="trash" title-type="p">
-    Delete unused sample sections and pages, or rewrite them with your own content to keep navigation focused.
+  <Step title="Pro features appear" icon="layout">
+    New sidebar menu items, admin pages, content editor panels, and API endpoints become available.
   </Step>
 </Steps>
 
-## Try a few components
+## Get Started
 
-You can browse the component gallery in the [Components](/components) page for ready-to-use examples of Cards, Callouts, Steps, Tabs, and more.
-
-## Continue to the rest of the sample
-
-<Columns cols="2">
-  <Card title="Quickstart" href="/quickstart" icon="zap" horizontal="false">
-    See the minimal setup flow.
+<Columns cols={3}>
+  <Card title="Installation" icon="download" href="/installation">
+    Deploy Studio Pro via Docker or install plugins manually.
   </Card>
-
-  <Card title="Core Concepts" href="/concepts" icon="layers" horizontal="false">
-    Learn how pages, navigation, and components fit together.
+  <Card title="Licensing" icon="key" href="/licensing">
+    Understand license tokens, validation, grace periods, and limits.
   </Card>
-
-  <Card title="Components" href="/components" icon="code" horizontal="false">
-    A small gallery of built-in components.
-  </Card>
-
-  <Card title="Authentication" href="/authentication" icon="lock" horizontal="false">
-    Example layout for an auth guide.
-  </Card>
-
-  <Card title="Help Center" href="/help-center" icon="help-circle" horizontal="false">
-    Starter FAQ, guides, and troubleshooting templates.
+  <Card title="Studio CE Docs" icon="book" href="https://docs.studio.roadbeat.dev" target="_blank">
+    Full CE documentation including API reference, editor guides, and deployment.
   </Card>
 </Columns>
 

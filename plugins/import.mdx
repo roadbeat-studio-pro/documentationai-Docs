@@ -1,0 +1,104 @@
+---
+title: Content Import
+description: Import content from CSV and JSON files with field mapping, validation, duplicate detection, preview, and rollback.
+---
+
+## Overview
+
+The **Content Import** plugin lets you bulk-import content from external sources in CSV or JSON format. Map source fields to content type fields, preview the import before committing, detect duplicates, and roll back if something goes wrong.
+
+## Key Features
+
+- **JSON and CSV parsing** — auto-detection of arrays, nested objects, and CSV delimiters
+- **Field mapping** — map source columns/keys to content type fields with transforms
+- **Transforms** — lowercase, uppercase, trim, number, boolean, date, JSON stringify
+- **Duplicate detection** — detect by slug or any field value
+- **Preview mode** — dry-run on the first N records before committing
+- **Progress tracking** — per-row success/error reporting
+- **Retry** — re-run failed rows without re-importing successful ones
+- **Rollback** — delete all content created by a specific import job
+- **Auto slug generation** — slugs generated and uniqueness enforced automatically
+
+## For Admins: Setup
+
+### Migration
+
+```bash
+psql -U postgres -d roadbeat_studio -f plugins/pro-import/migrations/001_create_import_tables.sql
+```
+
+Tables created: `pro_import_jobs`, `pro_imported_content`
+
+## For Editors: Importing Content
+
+### Import Workflow
+
+<Steps>
+  <Step title="Navigate to Content Import">
+    Go to **Content Import** in the sidebar.
+  </Step>
+  <Step title="Create an import job">
+    Select the target content type, upload your file (JSON or CSV), and configure field mappings.
+  </Step>
+  <Step title="Preview (recommended)">
+    Run a preview to see how the first records would be imported. Check for mapping errors, missing fields, and duplicate conflicts.
+  </Step>
+  <Step title="Process the import">
+    Execute the import. Progress is tracked per-row with success/failure status.
+  </Step>
+  <Step title="Review results">
+    Check the job status for any errors. Failed rows can be retried individually.
+  </Step>
+</Steps>
+
+### Field Mapping
+
+Map each source field to a target content type field:
+
+```json
+{
+  "contentTypeId": "news",
+  "data": "...csv or json content...",
+  "mappings": [
+    { "source": "Title", "target": "data.headline.en" },
+    { "source": "Body", "target": "data.body.en" },
+    { "source": "Category", "target": "data.classification.category", "transform": "lowercase" },
+    { "source": "Date", "target": "data.published_date", "transform": "date" }
+  ]
+}
+```
+
+### Available Transforms
+
+| Transform | Description |
+|-----------|-------------|
+| `lowercase` | Convert to lowercase |
+| `uppercase` | Convert to uppercase |
+| `trim` | Remove leading/trailing whitespace |
+| `number` | Parse as number |
+| `boolean` | Parse as boolean |
+| `date` | Parse as ISO date |
+| `json` | JSON stringify |
+
+### Rollback
+
+If an import produces bad data, roll back all content created by that job:
+
+```bash
+POST /api/v1/pro/import/jobs/:id/rollback
+```
+
+This deletes all content items created by the import, restoring your database to its pre-import state.
+
+## API Reference
+
+All import endpoints are in the [Studio API Reference](https://docs.studio.roadbeat.dev/api-reference/overview) under the `pro-import` tag.
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/v1/pro/import/jobs` | List import jobs |
+| `POST /api/v1/pro/import/jobs` | Create an import job |
+| `POST /api/v1/pro/import/jobs/:id/process` | Execute the import |
+| `POST /api/v1/pro/import/jobs/:id/retry` | Retry failed rows |
+| `POST /api/v1/pro/import/jobs/:id/rollback` | Roll back imported content |
+| `POST /api/v1/pro/import/preview` | Preview import (dry-run) |

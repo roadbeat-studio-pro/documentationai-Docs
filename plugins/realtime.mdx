@@ -1,0 +1,101 @@
+---
+title: WebSockets & Real-time
+description: Live collaboration with WebSocket presence tracking, cursor sharing, and event broadcasting.
+---
+
+## Overview
+
+The **Real-time** plugin adds WebSocket-based live collaboration to Studio. See who is editing what in real-time, share cursor positions for collaborative editing, and receive instant notifications when content changes — all through a Socket.IO gateway with JWT authentication.
+
+## Key Features
+
+- **WebSocket gateway** — Socket.IO at `/ws` with JWT authentication via handshake token
+- **Editing presence** — see who is currently editing each content item
+- **Cursor sharing** — share cursor positions in the content editor
+- **Event broadcasting** — content updates, publishes, deletes, and comments broadcast to all connected users
+- **Direct notifications** — send notifications to specific users via WebSocket
+- **Connection management** — admin API for monitoring connections, presence, and disconnecting users
+- **No database tables** — all state is in-memory (connections, presence, cursors)
+
+## For Admins: Configuration
+
+No migration required — this plugin stores all state in memory.
+
+### Dependencies
+
+This plugin requires additional npm packages on the CE side:
+
+```bash
+@nestjs/websockets @nestjs/platform-socket.io socket.io
+```
+
+These are included in the Pro Docker image by default.
+
+### Monitoring
+
+Navigate to **Real-time** in the sidebar to access the admin dashboard with three tabs:
+
+- **Connections** — online user list with connection details, 10-second auto-refresh, disconnect button
+- **Presence** — content rooms showing who is editing what, with cursor positions
+- **Events** — reference of broadcast events and client messages
+
+### Admin API
+
+```bash
+# Connection statistics
+GET /api/v1/pro/realtime/stats
+
+# List all connections
+GET /api/v1/pro/realtime/connections
+
+# List all presence rooms
+GET /api/v1/pro/realtime/presence
+
+# Presence for a specific content item
+GET /api/v1/pro/realtime/presence/:contentId
+
+# Check if a user is online
+GET /api/v1/pro/realtime/users/:userId/online
+
+# Disconnect a user
+DELETE /api/v1/pro/realtime/users/:userId/connections
+```
+
+## For Editors: Live Collaboration
+
+When the Real-time plugin is active, you'll see:
+
+- **Presence indicators** — avatars of other users currently viewing or editing the same content
+- **Cursor positions** — see where other editors are working in the content
+- **Live updates** — content list and editor update in real-time when others make changes
+
+### WebSocket Events
+
+The plugin broadcasts these events to connected clients:
+
+| Event | Room | Trigger |
+|-------|------|---------|
+| `content:updated` | `org:<orgId>` | Content saved |
+| `content:changed` | `content:<contentId>` | Content in this room changed |
+| `content:published` | `org:<orgId>` | Content published |
+| `content:deleted` | `org:<orgId>` | Content deleted |
+| `comment:created` | `org:<orgId>` | New comment added |
+| `notification` | `user:<userId>` | Direct user notification |
+| `user:joined` | `content:<contentId>` | User entered content room |
+| `user:left` | `content:<contentId>` | User left content room |
+| `cursor:update` | `content:<contentId>` | Cursor position changed |
+
+### Client Events
+
+Clients can send these events:
+
+| Event | Description |
+|-------|-------------|
+| `join:content` | Enter a content editing room |
+| `leave:content` | Leave a content editing room |
+| `cursor:move` | Update cursor position |
+| `presence:request` | Request current presence list |
+
+## API Reference
+
+All real-time endpoints are in the [Studio API Reference](https://docs.studio.roadbeat.dev/api-reference/overview) under the real-time related tags.

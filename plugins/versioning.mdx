@@ -1,0 +1,58 @@
+---
+title: Version Comparison
+description: Side-by-side version comparison with field-level diffs and word-level text changes.
+---
+
+## Overview
+
+The **Version Comparison** plugin enhances CE's version history with rich side-by-side comparison. Compare any two versions of a content item to see exactly what changed — field by field, with word-level diffs for text content.
+
+## Key Features
+
+- **Side-by-side comparison** — compare any two versions with field-level diffs
+- **Diff types** — added, removed, changed, unchanged fields sorted by relevance
+- **Word-level text diffs** — highlights individual word changes with Jaccard similarity scoring
+- **Enriched version list** — shows field count and change count per version
+- **One-click diff** — compare any version against its predecessor
+- **No additional tables** — uses CE's existing `content_versions` table
+
+## For Editors: Comparing Versions
+
+### Comparing Two Versions
+
+<Steps>
+  <Step title="Open a content item">
+    Navigate to any content item in the editor.
+  </Step>
+  <Step title="Open version history">
+    Click the version indicator in the status bar.
+  </Step>
+  <Step title="Select versions to compare">
+    Pick two versions from the list. Each version shows how many fields changed compared to the previous version.
+  </Step>
+  <Step title="View the diff">
+    The comparison view shows:
+    - **Changed fields** — old value vs new value, highlighted
+    - **Added fields** — new fields that didn't exist in the left version
+    - **Removed fields** — fields that were deleted in the right version
+    - **Word-level diffs** — for text fields, individual word changes are highlighted
+  </Step>
+</Steps>
+
+### Quick Diff with Previous
+
+For any version, click **Compare with Previous** to see what changed from the version before it — no need to manually select two versions.
+
+## For Admins: Setup
+
+No migration required — this plugin uses CE's existing `content_versions` table. Simply enable the plugin via your license key.
+
+## API Reference
+
+All versioning endpoints are in the [Studio API Reference](https://docs.studio.roadbeat.dev/api-reference/overview).
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/v1/pro/versioning/content/:contentId/versions` | Enriched version list |
+| `GET /api/v1/pro/versioning/content/:contentId/compare?left=N&right=M` | Side-by-side comparison |
+| `GET /api/v1/pro/versioning/content/:contentId/versions/:version/diff` | Diff with previous version |

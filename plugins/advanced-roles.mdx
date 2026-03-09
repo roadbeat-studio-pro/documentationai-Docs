@@ -1,0 +1,83 @@
+---
+title: Advanced Roles & Permissions
+description: Per-content-type granular access control, custom role definitions, and a visual role editor.
+---
+
+## Overview
+
+The **Advanced Roles** plugin replaces CE's three fixed roles (admin/editor/viewer) with a fully customizable permission system. Define granular per-content-type permissions, create custom roles, and manage a visual permission matrix across your entire content model.
+
+## Key Features
+
+- **Per-content-type permissions** — allow/deny create, read, update, delete, publish, unpublish per content type
+- **Priority-based resolution** — user-specific rules override role-based rules, with fallback to CE defaults
+- **Custom roles** — create roles beyond admin/editor/viewer with arbitrary permission sets
+- **Resource-level permissions** — control access to assets, users, roles, settings, webhooks, locales, API keys
+- **Role duplication** — clone a role with all its permissions
+- **Role comparison** — side-by-side diff of two roles
+- **Permission matrix** — visual overview of who can do what across all content types
+- **Automatic enforcement** — intercepts all content lifecycle events to check permissions
+
+## For Admins: Setting Up Permissions
+
+### Migration
+
+```bash
+psql -U postgres -d roadbeat_studio -f plugins/pro-advanced-roles/migrations/001_create_content_type_permissions.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-advanced-roles/migrations/002_create_custom_roles.sql
+```
+
+Tables created: `pro_content_type_permissions`, `pro_custom_roles`, `pro_resource_permissions`
+
+### Content Type Permissions
+
+Navigate to **Content Permissions** in the Settings section to configure per-content-type access rules:
+
+<Steps>
+  <Step title="Select a content type">
+    Choose the content type you want to configure (e.g., "News", "Press Releases").
+  </Step>
+  <Step title="Set permissions per role">
+    For each role, toggle which actions are allowed: Create, Read, Update, Delete, Publish, Unpublish.
+  </Step>
+  <Step title="Add user-specific overrides">
+    Optionally override role-based permissions for specific users (e.g., give a viewer publish access for one content type).
+  </Step>
+</Steps>
+
+### Custom Roles
+
+Navigate to **Role Editor** to create and manage custom roles:
+
+- **Create** — define a new role with a name, slug, description, and base permissions
+- **Duplicate** — clone an existing role as a starting point
+- **Compare** — view two roles side by side to see permission differences
+- **Resource permissions** — set access levels for non-content resources (assets, users, settings, etc.)
+- **Permission matrix** — view the full matrix of content type + resource permissions for any role
+
+### Seeding System Roles
+
+On first setup, seed system role mirrors for CE's built-in roles:
+
+```bash
+POST /api/v1/pro/roles/seed
+```
+
+This creates custom role entries for `admin`, `editor`, and `viewer` that you can then customize without affecting CE's default behavior.
+
+## For Editors: What Changes
+
+When Advanced Roles is active:
+
+- You may see different content types in the "New Content" menu depending on your permissions
+- Some content types may be read-only for your role
+- Publish/unpublish buttons only appear if your role has the corresponding permission
+- The content list is filtered to show only content types you have read access to
+
+<Callout kind="info">
+  Admin users bypass all permission checks unless an explicit DENY rule targets them. This ensures admins always have full access.
+</Callout>
+
+## API Reference
+
+All advanced roles endpoints are in the [Studio API Reference](https://docs.studio.roadbeat.dev/api-reference/overview) under the `pro-advanced-roles` and `pro-role-editor` tags.

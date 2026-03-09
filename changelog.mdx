@@ -1,22 +1,38 @@
 ---
-title: Sample Changelog
-description: Sample release notes you can replace with your real updates.
+title: Changelog
+description: Release notes and updates for roadbeat Studio Pro plugins.
 ---
 
-## Sample updates
-
-<Callout kind="alert">
-This changelog is example content. Replace every entry with your real releases.
-</Callout>
-
-<Update label="2026-01-26" description="Sample Update" tags={["sample"]}>
+<Update label="2026-03-09" description="v0.3.0" tags={["feature"]}>
 ## What changed
-- Cleaned up placeholder copy across the starter kit.
-- Added clearer "sample" messaging to avoid confusion.
+- **pro-notifications** v0.3.0 — external channel integrations (Slack, Teams, Discord, generic webhook), per-user preferences with digest and DND, notification analytics, housekeeping
+- **pro-audit** v0.3.0 — saved searches, compliance reports (GDPR, user-access, data-changes, permission-changes, api-access), export JSON/CSV
+- **pro-advanced-roles** v0.3.0 — custom role editor with resource-level permissions, role duplication, role comparison, full permission matrix, system role seeding
+- **pro-preview** v0.2.0 — shareable preview URLs with password protection, access limits, visitor tracking, preview analytics
+- **pro-api-explorer** — interactive endpoint catalog, request execution, cURL export, request history with save/replay
+- **pro-whitelabel** — custom themes, branding (logo, app name, favicon), accessibility settings, theme presets, import/export
+- **pro-layouts** — custom layout builder with draft/publish, versioning, duplication, import/export, Git sync
 </Update>
 
-<Update label="2025-12-10" description="Sample Update" tags={["sample"]}>
+<Update label="2026-02-25" description="v0.2.0" tags={["feature"]}>
 ## What changed
-- Simplified the Quickstart steps.
-- Trimmed Help Center examples.
+- **pro-import** v0.2.0 — CSV/JSON content import with field mapping, transforms, duplicate detection, preview, rollback
+- **pro-export** v0.2.0 — CSV/JSON content export with reusable templates, field transforms, auto-expiry
+- **pro-graphql** — auto-generated GraphQL SDL from content type schemas, dynamic queries, filtering, responsive image resolution, batch queries
+- **pro-environments** — dev/staging/prod environments, content promotion, bulk sync, comparison, cloning, aliases
+- **pro-sso** — SAML 2.0, OAuth 2.0/OIDC, SCIM 2.0 provisioning, JIT role mapping, domain enforcement
+- **pro-webhooks** — retry with exponential backoff, dead letter queue, incoming webhooks, delivery analytics, housekeeping
+- **pro-bulk-ops** — bulk asset move, delete, tag, download
+- **pro-media** — video processing jobs, thumbnail generation, transcode profiles
+- **pro-versioning** — side-by-side version comparison with field-level and word-level diffs
+- **pro-realtime** — WebSocket gateway, editing presence, cursor sharing, live event broadcasting
+</Update>
+
+<Update label="2026-02-10" description="v0.1.0" tags={["feature"]}>
+## What changed
+- **Initial Release** — first three plugins
+- **pro-workflows** v0.1.0 — configurable editorial workflows with states, transitions, approvals, task assignment, publish guard, workflow builder with templates/simulation/analysis
+- **pro-scheduling** v0.1.0 — scheduled publish/unpublish/archive, bulk scheduling, releases, calendar view, background processor
+- **pro-locking** v0.1.0 — pessimistic content locking with exclusive/advisory modes, heartbeat extension, force-unlock, editor sidebar panel
+- **plugin-base** — shared `AbstractPlugin` base class, CE DI tokens, auth utilities
 </Update>

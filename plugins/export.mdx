@@ -1,0 +1,100 @@
+---
+title: Content Export
+description: Export content as JSON or CSV with configurable field mappings, reusable templates, and transforms.
+---
+
+## Overview
+
+The **Content Export** plugin provides advanced content export capabilities beyond CE's basic backup/restore. Export filtered content as JSON or CSV with configurable field selection, column renaming, data transforms, and reusable export templates.
+
+## Key Features
+
+- **JSON and CSV formats** — CSV follows RFC 4180 with proper quoting/escaping
+- **Field selection and mapping** — choose which fields to include and rename columns
+- **Transforms** — lowercase, uppercase, trim, date formatting, truncation, JSON stringify
+- **Content filtering** — by type, status, locale, date range, and search query
+- **Reusable templates** — save export configurations for repeated use
+- **Inline download** — export results download directly (no external storage)
+- **Auto-expiry** — export job results are cleaned up after 7 days
+
+## For Admins: Setup
+
+### Migration
+
+```bash
+psql -U postgres -d roadbeat_studio -f plugins/pro-export/migrations/001_create_export_tables.sql
+```
+
+Tables created: `pro_export_jobs`, `pro_export_templates`
+
+## For Editors: Exporting Content
+
+### Quick Export
+
+<Steps>
+  <Step title="Navigate to Content Export">
+    Go to **Content Export** in the sidebar.
+  </Step>
+  <Step title="Configure the export">
+    Select content type, status filter, locale, date range, and output format (JSON or CSV).
+  </Step>
+  <Step title="Select fields">
+    Choose which fields to include. Optionally rename columns and apply transforms.
+  </Step>
+  <Step title="Run the export">
+    Click **Export**. The job processes in the background.
+  </Step>
+  <Step title="Download the result">
+    Once complete, download the file directly from the job detail page.
+  </Step>
+</Steps>
+
+### Export Templates
+
+Save your export configuration as a reusable template:
+
+```bash
+POST /api/v1/pro/export/templates
+{
+  "name": "Weekly News Export",
+  "format": "csv",
+  "contentTypeId": "news",
+  "filters": { "status": "published", "locale": "en" },
+  "fieldMappings": [
+    { "source": "data.headline.en", "target": "Title" },
+    { "source": "data.description.en", "target": "Description", "transform": "trim" },
+    { "source": "createdAt", "target": "Created", "transform": "date" }
+  ]
+}
+```
+
+Run a template with one click:
+
+```bash
+POST /api/v1/pro/export/templates/:id/run
+```
+
+### Available Transforms
+
+| Transform | Description | Example |
+|-----------|-------------|---------|
+| `lowercase` | Convert to lowercase | "NEWS" → "news" |
+| `uppercase` | Convert to uppercase | "news" → "NEWS" |
+| `trim` | Remove whitespace | "  text  " → "text" |
+| `date` | Format as ISO date | timestamp → "2026-03-09" |
+| `truncate` | Truncate to N characters | Long text → "Long te..." |
+| `json_stringify` | Convert object to JSON string | `{a:1}` → `'{"a":1}'` |
+
+## API Reference
+
+All export endpoints are in the [Studio API Reference](https://docs.studio.roadbeat.dev/api-reference/overview) under the `pro-export` tag.
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/v1/pro/export/jobs` | List export jobs |
+| `POST /api/v1/pro/export/jobs` | Create an export job |
+| `POST /api/v1/pro/export/jobs/:id/process` | Process the export |
+| `GET /api/v1/pro/export/jobs/:id/download` | Download result |
+| `GET /api/v1/pro/export/templates` | List templates |
+| `POST /api/v1/pro/export/templates` | Create template |
+| `POST /api/v1/pro/export/templates/:id/run` | Run a template |

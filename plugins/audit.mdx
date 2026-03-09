@@ -1,0 +1,105 @@
+---
+title: Audit Logging
+description: Immutable audit trail with change tracking, compliance reports, retention policies, and analytics.
+---
+
+## Overview
+
+The **Audit Logging** plugin provides a comprehensive, immutable audit trail for all significant actions in Studio. Every content change, user action, and system event is recorded with full context — who did what, when, and exactly what changed.
+
+## Key Features
+
+- **Immutable audit entries** — every action is logged with user, resource, changes, severity, and category
+- **Change tracking** — old vs new field values stored as JSONB diffs
+- **Compliance reports** — generate GDPR, user-access, data-changes, permission-changes, and API-access reports
+- **Export** — download audit logs as JSON or CSV for external analysis
+- **Retention policies** — configurable auto-cleanup rules (30–3,650 days)
+- **Saved searches** — save and share filter combinations for repeated queries
+- **Analytics dashboard** — breakdowns by action, resource, severity, category, and top users
+- **Event-driven** — automatically captures content and user lifecycle events
+
+## For Admins: Configuration
+
+### Migration
+
+```bash
+psql -U postgres -d roadbeat_studio -f plugins/pro-audit/migrations/001_create_audit_tables.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-audit/migrations/002_add_saved_searches.sql
+```
+
+Tables created: `pro_audit_logs`, `pro_audit_retention_policies`, `pro_audit_saved_searches`
+
+### Automatic Event Capture
+
+The plugin automatically logs these events:
+
+| Event | Severity | Category |
+|-------|----------|----------|
+| Content created | `info` | `content` |
+| Content updated | `info` | `content` |
+| Content deleted | `warning` | `content` |
+| Content published | `info` | `content` |
+| User created | `info` | `user` |
+| User updated | `info` | `user` |
+| User deleted | `warning` | `user` |
+
+### Retention Policies
+
+Configure how long audit logs are retained:
+
+<Steps>
+  <Step title="Navigate to Audit Log">
+    Go to **Audit Log** in the Settings section of the sidebar.
+  </Step>
+  <Step title="Open the Retention tab">
+    Switch to the Retention tab to manage retention policies.
+  </Step>
+  <Step title="Create a policy">
+    Define a retention period (30–3,650 days), category filter, and severity filter. Logs matching the policy are automatically deleted after the retention period.
+  </Step>
+  <Step title="Enforce manually (optional)">
+    Click **Enforce Now** to immediately apply retention policies and delete expired logs.
+  </Step>
+</Steps>
+
+### Compliance Reports
+
+Generate compliance reports from the **Compliance** tab:
+
+| Report Type | Description |
+|------------|-------------|
+| `user-access` | All actions by a specific user in a date range |
+| `data-changes` | All content modifications with before/after values |
+| `permission-changes` | Role and permission modifications |
+| `api-access` | API key usage and access patterns |
+| `gdpr-data-export` | Full GDPR data export for a specific user |
+
+Reports can be exported as JSON or CSV.
+
+## For Editors: Viewing Audit Logs
+
+Editors with appropriate permissions can browse the audit log to see:
+
+- **Activity timeline** — chronological list of all actions
+- **Filters** — by user, action, resource type, severity, category, date range, and free-text search
+- **Detail view** — expand any entry to see the full change details (old vs new values)
+- **Saved searches** — save frequently used filter combinations for quick access
+
+<Callout kind="tip">
+  Use the saved search feature to create common views like "My changes this week" or "All published content today".
+</Callout>
+
+## API Reference
+
+All audit endpoints are in the [Studio API Reference](https://docs.studio.roadbeat.dev/api-reference/overview) under the audit-related tags.
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/v1/pro/audit` | Query audit logs with filters |
+| `GET /api/v1/pro/audit/entry/:id` | Get single audit entry |
+| `GET /api/v1/pro/audit/export` | Export logs (JSON/CSV) |
+| `GET /api/v1/pro/audit/stats` | Analytics dashboard data |
+| `GET /api/v1/pro/audit/retention` | List retention policies |
+| `POST /api/v1/pro/audit/retention/enforce` | Enforce retention now |
+| `GET /api/v1/pro/audit/searches` | List saved searches |
+| `POST /api/v1/pro/audit/compliance/generate` | Generate compliance report |

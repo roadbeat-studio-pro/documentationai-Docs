@@ -1,0 +1,101 @@
+---
+title: API Explorer
+description: Interactive API endpoint catalog with request execution, cURL export, and request history.
+---
+
+## Overview
+
+The **API Explorer** plugin provides an interactive API testing interface built into Studio's admin UI. Browse the full endpoint catalog, execute requests with live responses, generate cURL commands, and save request history for repeated testing.
+
+## Key Features
+
+- **Endpoint catalog** — browsable list of all API endpoints with descriptions and parameters
+- **Category grouping** — endpoints organized by category (content, assets, auth, etc.)
+- **Search** — find endpoints by keyword
+- **Example payloads** — auto-generated example request bodies per endpoint
+- **cURL generation** — export any request as a copy-pasteable cURL command
+- **Request execution** — execute API requests directly from the UI with live response display
+- **Request history** — track all executed requests with timestamps, status codes, and response times
+- **Saved requests** — save important requests with names and tags for easy retrieval
+- **Replay** — re-execute any history item with one click
+
+## For Admins: Setup
+
+### Migration
+
+```bash
+psql -U postgres -d roadbeat_studio -f plugins/pro-api-explorer/migrations/001_create_api_explorer_history.sql
+```
+
+Table created: `pro_api_explorer_history`
+
+Navigate to **API Explorer** in the sidebar to access the interactive explorer.
+
+## For Developers: Using the Explorer
+
+### Browsing Endpoints
+
+The endpoint catalog shows every registered API route with:
+
+- HTTP method and path
+- Summary description
+- Required parameters (path, query, body)
+- Authentication requirements
+
+Filter by category or search by keyword to find specific endpoints quickly.
+
+### Executing Requests
+
+<Steps>
+  <Step title="Select an endpoint">
+    Click any endpoint in the catalog to open it.
+  </Step>
+  <Step title="Fill in parameters">
+    Enter path parameters, query parameters, and request body. Example payloads are pre-filled when available.
+  </Step>
+  <Step title="Execute">
+    Click **Send**. The response is displayed with status code, headers, response time, and formatted body.
+  </Step>
+  <Step title="Save or export">
+    Save the request to history, or click **Copy cURL** to export as a cURL command.
+  </Step>
+</Steps>
+
+### Request History
+
+View your request history with:
+
+- Timestamp
+- Method + endpoint
+- Status code
+- Response time
+- Request and response bodies
+
+Actions: **Replay** (re-execute), **Save** (with name and tags), **Delete**.
+
+```bash
+# List history
+GET /api/v1/pro/api-explorer/history
+
+# Replay a request
+POST /api/v1/pro/api-explorer/history/:id/replay
+
+# Save with name/tags
+PUT /api/v1/pro/api-explorer/history/:id/save
+{ "name": "Get published news", "tags": ["testing", "news"] }
+
+# Clear history
+DELETE /api/v1/pro/api-explorer/history?keepSaved=true
+```
+
+### Usage Statistics
+
+```bash
+GET /api/v1/pro/api-explorer/stats
+```
+
+Returns request counts, most-used endpoints, average response times, and error rates.
+
+## API Reference
+
+All API Explorer endpoints are in the [Studio API Reference](https://docs.studio.roadbeat.dev/api-reference/overview) under the `pro-api-explorer` tag.

@@ -1,0 +1,110 @@
+---
+title: Video Processing
+description: Video transcoding jobs, thumbnail generation, and reusable transcode profiles.
+---
+
+## Overview
+
+The **Video Processing** plugin adds professional video management to Studio's Asset Library. Create transcoding jobs for uploaded videos, generate thumbnails, and define reusable transcode profiles for consistent output formats.
+
+## Key Features
+
+- **Transcoding jobs** — convert videos between formats with configurable quality settings
+- **Thumbnail generation** — extract thumbnail frames from videos
+- **Metadata extraction** — parse video dimensions, duration, codec, and bitrate
+- **Transcode profiles** — reusable presets for common output configurations
+- **Job lifecycle** — pending → processing → completed/failed with retry support
+- **Priority-based processing** — higher priority jobs are processed first
+- **Per-asset video info** — query video metadata for any asset
+
+## For Admins: Configuration
+
+### Migration
+
+```bash
+psql -U postgres -d roadbeat_studio -f plugins/pro-media/migrations/001_create_video_tables.sql
+```
+
+Tables created: `pro_video_jobs`, `pro_transcode_profiles`
+
+### Transcode Profiles
+
+Create reusable profiles for common video output settings:
+
+```bash
+POST /api/v1/pro/media/profiles
+{
+  "name": "Web Optimized",
+  "format": "mp4",
+  "codec": "h264",
+  "resolution": "1080p",
+  "bitrate": "5000k",
+  "audioBitrate": "128k",
+  "isDefault": true
+}
+```
+
+Manage profiles:
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/v1/pro/media/profiles` | List all profiles |
+| `GET /api/v1/pro/media/profiles/:id` | Get profile details |
+| `POST /api/v1/pro/media/profiles` | Create profile |
+| `PUT /api/v1/pro/media/profiles/:id` | Update profile |
+| `DELETE /api/v1/pro/media/profiles/:id` | Delete profile |
+
+## For Editors: Working with Video
+
+### Creating a Transcoding Job
+
+After uploading a video to the Asset Library, create a job to process it:
+
+```bash
+POST /api/v1/pro/media/jobs
+{
+  "assetId": "video-asset-uuid",
+  "jobType": "transcode",
+  "profileId": "web-optimized-profile-uuid",
+  "priority": 10
+}
+```
+
+### Job Types
+
+| Type | Description |
+|------|-------------|
+| `metadata` | Extract video metadata (dimensions, duration, codec) |
+| `thumbnail` | Generate thumbnail image from a video frame |
+| `transcode` | Convert to a different format/resolution using a profile |
+| `full` | All of the above in sequence |
+
+### Monitoring Jobs
+
+```bash
+# List jobs (with filters)
+GET /api/v1/pro/media/jobs?status=processing&assetId=uuid
+
+# Get job details
+GET /api/v1/pro/media/jobs/:id
+
+# Retry a failed job
+POST /api/v1/pro/media/jobs/:id/retry
+
+# Processing statistics
+GET /api/v1/pro/media/stats
+```
+
+### Video Info
+
+Get video metadata for any asset:
+
+```bash
+GET /api/v1/pro/media/assets/:assetId/video-info
+```
+
+Returns dimensions, duration, codec, bitrate, and other technical metadata.
+
+## API Reference
+
+All video processing endpoints are in the [Studio API Reference](https://docs.studio.roadbeat.dev/api-reference/overview) under the media-related tags.

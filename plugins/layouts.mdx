@@ -1,0 +1,99 @@
+---
+title: Custom Layouts
+description: Visual layout builder with versioning, draft/publish workflow, import/export, and Git sync.
+---
+
+## Overview
+
+The **Custom Layouts** plugin extends CE's built-in layout system with a full layout builder. Create, version, publish, duplicate, and sync custom layout definitions — with optional Git integration for version-controlled layout management.
+
+## Key Features
+
+- **Custom layout CRUD** — create, update, publish, delete layout definitions
+- **Draft/Publish workflow** — edit layouts as drafts, then publish when ready
+- **Version history** — track changes and restore previous versions
+- **Duplication** — clone existing layouts to create variations
+- **Import/Export** — share layout definitions as JSON files
+- **Git sync** — connect a Git repository for version-controlled layout management
+
+## For Admins: Managing Layouts
+
+### Migration
+
+```bash
+psql -U postgres -d roadbeat_studio -f plugins/pro-layouts/migrations/001_create_custom_layouts.sql
+```
+
+Table created: `pro_custom_layouts`
+
+### Creating a Custom Layout
+
+<Steps>
+  <Step title="Navigate to Custom Layouts">
+    Go to the **Custom Layouts** section in the Pro sidebar.
+  </Step>
+  <Step title="Create a new layout">
+    Click **Create Layout**. Select the target content type, give it a name, and start building the layout definition.
+  </Step>
+  <Step title="Define regions">
+    Add regions (hero-image, title, body-text, metadata-strip, etc.) and configure their source paths, styles, and conditions.
+  </Step>
+  <Step title="Save as draft">
+    Your layout is saved as a draft. Preview it against real content to verify.
+  </Step>
+  <Step title="Publish">
+    When satisfied, click **Publish** to make the layout available for use.
+  </Step>
+</Steps>
+
+### Git Sync
+
+Connect a Git repository to manage layouts as code:
+
+```bash
+# Configure Git repository
+POST /api/v1/pro/layouts/git/configure
+{ "repoUrl": "https://github.com/your-org/studio-layouts.git", "branch": "main", "path": "layouts/" }
+
+# Check sync status
+GET /api/v1/pro/layouts/git/status
+
+# Pull latest changes from Git
+POST /api/v1/pro/layouts/git/sync
+
+# Push local changes to Git
+POST /api/v1/pro/layouts/git/push
+```
+
+### Import/Export
+
+Share layouts between Studio instances:
+
+```bash
+# Export a layout as JSON
+GET /api/v1/pro/layouts/:id/export
+
+# Import a layout from JSON
+POST /api/v1/pro/layouts/import
+{ "definition": { ... }, "layoutId": "custom-news-layout" }
+```
+
+## For Editors: Using Custom Layouts
+
+Custom layouts appear in the **Layout Preview Panel** in the content editor alongside CE's built-in layouts. Select any published custom layout from the dropdown to preview your content with that layout.
+
+## API Reference
+
+All layout builder endpoints are in the [Studio API Reference](https://docs.studio.roadbeat.dev/api-reference/overview) under the `pro/layouts` tag.
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/v1/pro/layouts` | List custom layouts |
+| `POST /api/v1/pro/layouts` | Create custom layout |
+| `PUT /api/v1/pro/layouts/:id` | Update (saves as draft) |
+| `POST /api/v1/pro/layouts/:id/publish` | Publish draft |
+| `GET /api/v1/pro/layouts/:id/versions` | Version history |
+| `POST /api/v1/pro/layouts/:id/restore/:version` | Restore version |
+| `POST /api/v1/pro/layouts/:id/duplicate` | Duplicate layout |
+| `GET /api/v1/pro/layouts/:id/export` | Export as JSON |
+| `POST /api/v1/pro/layouts/import` | Import from JSON |

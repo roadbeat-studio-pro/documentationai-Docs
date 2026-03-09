@@ -1,0 +1,117 @@
+---
+title: Advanced Webhooks
+description: Webhook retry with exponential backoff, dead letter queue, delivery analytics, and incoming webhooks.
+---
+
+## Overview
+
+The **Advanced Webhooks** plugin extends CE's basic webhook system with enterprise-grade delivery reliability. Failed deliveries are retried with exponential backoff, permanently failed deliveries go to a dead letter queue (DLQ), and incoming webhooks let external systems push data into Studio.
+
+## Key Features
+
+- **Configurable retry** — per-webhook retry strategy with exponential backoff, max attempts, and delay settings
+- **Dead letter queue** — permanently failed deliveries stored for inspection and manual retry
+- **Delivery log** — full history of every delivery attempt with status, response time, and payload
+- **Incoming webhooks** — receive data from external systems via custom endpoints with HMAC verification
+- **DLQ analytics** — statistics across all webhooks for monitoring delivery health
+- **Housekeeping** — automatic cleanup of old delivery logs
+
+## For Admins: Configuration
+
+### Migration
+
+```bash
+psql -U postgres -d roadbeat_studio -f plugins/pro-webhooks/migrations/001_create_webhook_retry_tables.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-webhooks/migrations/002_create_incoming_webhooks.sql
+```
+
+Tables created: `pro_webhook_retries`, `pro_dead_letters`, `pro_incoming_webhooks`, `pro_incoming_webhook_logs`
+
+### Retry Configuration
+
+Configure retry behavior per webhook:
+
+```bash
+PUT /api/v1/pro/webhooks/:webhookId/retry-config
+{
+  "maxRetries": 5,
+  "initialDelayMs": 1000,
+  "maxDelayMs": 300000,
+  "backoffMultiplier": 2,
+  "retryOnStatuses": [500, 502, 503, 504]
+}
+```
+
+Preview the retry schedule:
+
+```bash
+GET /api/v1/pro/webhooks/:webhookId/retry-schedule
+# Returns: [1s, 2s, 4s, 8s, 16s] — based on current config
+```
+
+### Dead Letter Queue
+
+View and manage failed deliveries:
+
+```bash
+# List DLQ entries for a webhook
+GET /api/v1/pro/webhooks/:webhookId/failed
+
+# Retry a specific failed delivery
+POST /api/v1/pro/webhooks/:webhookId/failed/:deliveryId/retry
+
+# Retry all DLQ entries for a webhook
+POST /api/v1/pro/webhooks/:webhookId/failed/retry-all
+
+# Purge DLQ for a webhook
+DELETE /api/v1/pro/webhooks/:webhookId/failed
+
+# DLQ stats across all webhooks
+GET /api/v1/pro/webhooks/dlq/stats
+```
+
+### Incoming Webhooks
+
+Create endpoints that external systems can call to push data into Studio:
+
+```bash
+POST /api/v1/pro/incoming-webhooks
+{
+  "name": "GitHub Deployment",
+  "slug": "github-deploy",
+  "description": "Triggered on successful deployment",
+  "enabled": true,
+  "actions": [
+    { "type": "publish_content", "contentTypeId": "news", "filter": { "tag": "deployment" } }
+  ]
+}
+```
+
+External systems send data to:
+```
+POST /api/v1/hooks/:slug
+```
+
+Each incoming webhook has its own signing secret for HMAC verification and a delivery log for debugging.
+
+### Delivery Statistics
+
+```bash
+# Per-webhook stats
+GET /api/v1/pro/webhooks/:webhookId/stats
+
+# Organization-wide stats
+GET /api/v1/pro/webhooks/stats/overview
+```
+
+### Housekeeping
+
+Clean up old delivery logs:
+
+```bash
+DELETE /api/v1/pro/webhooks/housekeeping?olderThanDays=30
+```
+
+## API Reference
+
+All advanced webhook endpoints are in the [Studio API Reference](https://docs.studio.roadbeat.dev/api-reference/overview) under the `pro-webhooks` tag.

@@ -1,0 +1,185 @@
+---
+title: Installation
+description: Deploy Studio Pro via Docker image or install plugins manually into an existing Studio CE instance.
+---
+
+## Overview
+
+Studio Pro is delivered as either a **pre-built Docker image** (recommended) or as **npm packages** you install into an existing Studio CE instance. Both methods result in the same outcome — Pro plugins loaded at runtime by CE's plugin system.
+
+## Option A: Docker Image (Recommended)
+
+The simplest deployment method. The Pro Docker image is the CE base image with all Pro plugins pre-installed.
+
+<Steps>
+  <Step title="Get registry credentials">
+    Your Pro license includes access to the private Docker registry at `registry.roadbeat.dev`. You'll receive credentials when your license is activated.
+  </Step>
+  <Step title="Log in to the registry">
+    ```bash
+    docker login registry.roadbeat.dev
+    ```
+  </Step>
+  <Step title="Update your docker-compose.yml">
+    Replace the CE image with the Pro image:
+
+    ```yaml
+    services:
+      api:
+        image: registry.roadbeat.dev/studio-pro:latest
+        environment:
+          ROADBEAT_LICENSE_KEY: ${ROADBEAT_LICENSE_KEY}
+          PLUGINS_DIR: /app/plugins
+          # ... same env vars as CE
+    ```
+  </Step>
+  <Step title="Set the license key">
+    Add your license key to `.env`:
+
+    ```bash
+    ROADBEAT_LICENSE_KEY=eyJhbGciOiJFZDI1NTE5...
+    ```
+  </Step>
+  <Step title="Run database migrations">
+    Pro plugins add their own tables (all prefixed with `pro_`). Run migrations on first deploy:
+
+    ```bash
+    docker compose exec api node -e "require('./dist/migrate-plugins')"
+    ```
+
+    Or apply SQL files manually — see each plugin's documentation for its migration file.
+  </Step>
+  <Step title="Start the stack">
+    ```bash
+    docker compose up -d
+    ```
+
+    Pro plugins load automatically. Check the logs to confirm:
+
+    ```bash
+    docker compose logs api | grep "plugin"
+    ```
+  </Step>
+</Steps>
+
+## Option B: Manual Plugin Installation
+
+Install Pro plugins into an existing CE instance via the private npm registry.
+
+<Steps>
+  <Step title="Configure npm registry access">
+    ```bash
+    npm config set @roadbeat-pro:registry https://npm.roadbeat.dev
+    npm login --scope=@roadbeat-pro
+    ```
+  </Step>
+  <Step title="Install plugins">
+    ```bash
+    cd /path/to/studio
+    mkdir -p plugins
+
+    # Install individual plugins
+    npm install @roadbeat-pro/workflows --prefix plugins/pro-workflows
+    npm install @roadbeat-pro/scheduling --prefix plugins/pro-scheduling
+    # ... repeat for each licensed plugin
+    ```
+  </Step>
+  <Step title="Set environment variables">
+    ```bash
+    ROADBEAT_LICENSE_KEY=eyJhbGciOiJFZDI1NTE5...
+    PLUGINS_DIR=./plugins
+    ```
+  </Step>
+  <Step title="Run migrations">
+    Apply each plugin's SQL migration against your Studio database:
+
+    ```bash
+    psql -U postgres -d roadbeat_studio -f plugins/pro-workflows/migrations/001_create_workflow_tables.sql
+    ```
+  </Step>
+  <Step title="Restart Studio">
+    ```bash
+    pnpm --filter api dev
+    ```
+  </Step>
+</Steps>
+
+## Verifying Installation
+
+After startup, verify Pro plugins are loaded:
+
+```bash
+# Check the plugin manifest endpoint
+curl http://localhost:3000/api/v1/plugins/manifest
+```
+
+The response should list your licensed plugins:
+
+```json
+{
+  "edition": "pro",
+  "tier": "team",
+  "activePluginIds": ["pro-workflows", "pro-scheduling", "pro-audit", ...],
+  "plugins": [...]
+}
+```
+
+<Callout kind="tip">
+  In the Admin UI, Pro plugins appear as new menu items in the sidebar. You should see sections like "Workflows & Publishing", "Content Tools", etc.
+</Callout>
+
+## Database Tables
+
+All Pro plugin tables use the `pro_` prefix to avoid conflicts with CE tables. Each plugin includes SQL migration files in its `migrations/` directory.
+
+| Plugin | Tables |
+|--------|--------|
+| pro-workflows | `pro_workflows`, `pro_workflow_instances`, `pro_workflow_tasks` |
+| pro-scheduling | `pro_scheduled_actions`, `pro_releases`, `pro_release_items` |
+| pro-audit | `pro_audit_logs`, `pro_audit_retention_policies`, `pro_audit_saved_searches` |
+| pro-locking | `pro_content_locks` |
+| pro-advanced-roles | `pro_content_type_permissions`, `pro_custom_roles`, `pro_resource_permissions` |
+| pro-sso | `pro_sso_configs`, `pro_sso_role_mappings` |
+| pro-environments | `pro_environments`, `pro_environment_aliases`, `pro_environment_content`, `pro_sync_logs` |
+| pro-export | `pro_export_jobs`, `pro_export_templates` |
+| pro-import | `pro_import_jobs`, `pro_imported_content` |
+| pro-graphql | `pro_graphql_configs` |
+| pro-notifications | `pro_notifications`, `pro_notification_channels`, `pro_notification_preferences` |
+| pro-media | `pro_video_jobs`, `pro_transcode_profiles` |
+| pro-preview | `pro_preview_tokens`, `pro_shareable_previews` |
+| pro-webhooks | `pro_webhook_retries`, `pro_dead_letters`, `pro_incoming_webhooks`, `pro_incoming_webhook_logs` |
+| pro-whitelabel | `pro_themes`, `pro_branding_config` |
+| pro-layouts | `pro_custom_layouts` |
+| pro-api-explorer | `pro_api_explorer_history` |
+
+<Callout kind="info">
+  Some plugins have no database tables: **pro-realtime** (in-memory only), **pro-versioning** (uses CE's `content_versions`), and **pro-bulk-ops** (uses CE asset tables).
+</Callout>
+
+## Updating
+
+<Tabs>
+  <Tab title="Docker" icon="server">
+    ```bash
+    docker compose pull
+    docker compose exec api node -e "require('./dist/migrate-plugins')"
+    docker compose up -d
+    ```
+  </Tab>
+  <Tab title="Manual" icon="terminal">
+    ```bash
+    # Update each plugin package
+    npm update @roadbeat-pro/workflows --prefix plugins/pro-workflows
+
+    # Apply any new migrations
+    psql -U postgres -d roadbeat_studio -f plugins/pro-workflows/migrations/002_add_new_table.sql
+
+    # Restart
+    pnpm --filter api dev
+    ```
+  </Tab>
+</Tabs>
+
+## API Documentation
+
+All Pro plugin API endpoints are documented in the [Studio CE API Reference](https://docs.studio.roadbeat.dev/api-reference/overview). Pro endpoints use the `/api/v1/pro/...` prefix and are included in the Swagger UI at `http://localhost:3000/api/docs`.

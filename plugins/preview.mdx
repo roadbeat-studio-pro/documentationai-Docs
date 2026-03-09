@@ -1,0 +1,89 @@
+---
+title: Preview API
+description: Share draft content with external reviewers via secure preview tokens and password-protected shareable links.
+---
+
+## Overview
+
+The **Preview API** plugin lets you share draft (unpublished) content with external stakeholders — clients, translators, legal reviewers — without giving them Studio accounts. Generate secure **preview tokens** for programmatic access or **shareable links** with optional password protection and access limits.
+
+## Key Features
+
+- **Preview tokens** — scoped to a single content item, content type, or entire organization
+- **Draft content access** — fetch unpublished content by ID, slug, or listing
+- **Shareable links** — human-friendly URLs with optional password and max-views limit
+- **Access analytics** — track view counts, unique IPs, and last access time
+- **Token management** — generate, list, revoke, and cleanup expired tokens
+- **Housekeeping** — automatic cleanup of expired tokens and links
+
+## For Admins: Managing Previews
+
+Navigate to **Preview Links** in the Settings section of the sidebar to manage tokens and shareable links.
+
+### Migration
+
+```bash
+psql -U postgres -d roadbeat_studio -f plugins/pro-preview/migrations/001_create_preview_tables.sql
+```
+
+Tables created: `pro_preview_tokens`, `pro_shareable_previews`
+
+### Token Scopes
+
+| Scope | Access |
+|-------|--------|
+| `content` | Single content item only |
+| `content_type` | All content of a specific type |
+| `org` | All draft content in the organization |
+
+### Cleanup
+
+Expired and revoked tokens can be cleaned up manually or automatically:
+
+```bash
+DELETE /api/v1/pro/preview/housekeeping
+```
+
+## For Editors: Sharing Previews
+
+### Creating a Shareable Link
+
+<Steps>
+  <Step title="Open the content item">
+    Navigate to the draft content you want to share.
+  </Step>
+  <Step title="Use the Preview sidebar panel">
+    In the content editor, the **Preview** sidebar panel lets you generate a shareable link.
+  </Step>
+  <Step title="Configure options">
+    - **Password** (optional) — require a password to view
+    - **Max views** (optional) — limit how many times the link can be accessed
+    - **Expiry** — set when the link becomes invalid
+  </Step>
+  <Step title="Share the link">
+    Copy the generated URL and send it to your reviewer. They can view the content without a Studio account.
+  </Step>
+</Steps>
+
+### Programmatic Preview Access
+
+For frontend frameworks (Next.js, Nuxt, etc.), use preview tokens to fetch draft content:
+
+```bash
+# Get draft content by ID
+GET /api/v1/pro/preview/content/:id?token=preview_token_here
+
+# Get draft content by slug
+GET /api/v1/pro/preview/content/by-slug/:slug?token=preview_token_here&locale=en
+
+# List all draft content available under a token
+GET /api/v1/pro/preview/content?token=preview_token_here&limit=20
+```
+
+<Callout kind="tip">
+  Preview tokens are ideal for implementing "Preview Mode" in your frontend framework. Pass the token as a query parameter or header to access draft content through your regular rendering pipeline.
+</Callout>
+
+## API Reference
+
+All preview endpoints are in the [Studio API Reference](https://docs.studio.roadbeat.dev/api-reference/overview) under the `pro-preview` tag.

@@ -1,0 +1,56 @@
+---
+title: General FAQ
+description: Frequently asked questions about Studio Pro plugins, licensing, and upgrades.
+---
+
+## About Studio Pro
+
+<Expandable title="What is Studio Pro?" default-open="true">
+  Studio Pro is a collection of 20 commercial plugins that extend the open-source roadbeat Studio Community Edition (CE). Plugins add enterprise features like editorial workflows, SSO, audit logging, advanced permissions, GraphQL API, real-time collaboration, and more.
+
+  Pro plugins are loaded at runtime by CE's plugin system — they never modify CE code.
+</Expandable>
+
+<Expandable title="Do I need Studio CE to use Pro?" default-open="false">
+  Yes. Studio Pro plugins run inside a Studio CE instance. The recommended approach is to use the **Pro Docker image** (`registry.roadbeat.dev/studio-pro:latest`), which is the CE base image with all Pro plugins pre-installed.
+</Expandable>
+
+<Expandable title="Can I choose which plugins to use?" default-open="false">
+  Yes. Your license token specifies which plugins are enabled in the `features` array. Only licensed plugins are loaded at startup. You can request a license with any combination of plugins.
+</Expandable>
+
+<Expandable title="What happens if my license expires?" default-open="false">
+  - **7-day grace period** — Pro features continue working, admin sees a renewal warning
+  - **After 7 days** — Pro features disable gracefully
+  - **Content is never locked** — all data remains accessible through CE
+
+  See [Licensing](/licensing) for details.
+</Expandable>
+
+<Expandable title="Does Pro require internet access?" default-open="false">
+  No. License validation is completely offline using Ed25519 cryptographic signatures. No "phone home" is required. This makes Pro suitable for air-gapped and high-security environments.
+</Expandable>
+
+## Data & Compatibility
+
+<Expandable title="Can I upgrade from CE to Pro without losing data?" default-open="false">
+  Yes. Upgrading is seamless — swap the Docker image, set the license key, run plugin migrations, and restart. All existing CE data is preserved. Pro plugins add their own tables (prefixed with `pro_`) alongside existing CE tables.
+</Expandable>
+
+<Expandable title="Can I downgrade from Pro back to CE?" default-open="false">
+  Yes. If you stop using Pro (or your license expires), CE continues working normally. Pro tables remain in the database but are simply not used. You can safely remove them if desired, but they don't interfere with CE operation.
+</Expandable>
+
+<Expandable title="Are Pro plugins compatible with all CE versions?" default-open="false">
+  Each plugin declares a minimum CE version in its `requires` field (e.g., `>=0.1.0`). The plugin loader validates this at startup and skips incompatible plugins with a warning. Always keep CE and Pro versions in sync for best compatibility.
+</Expandable>
+
+## API
+
+<Expandable title="Where is the Pro API documented?" default-open="false">
+  All Pro plugin API endpoints are included in the [Studio CE API Reference](https://docs.studio.roadbeat.dev/api-reference/overview). Pro endpoints use the `/api/v1/pro/...` prefix and are visible in the Swagger UI at `http://localhost:3000/api/docs`.
+</Expandable>
+
+<Expandable title="Do Pro plugins have their own authentication?" default-open="false">
+  No. Pro plugins use the same JWT authentication as CE. All Pro endpoints require a valid JWT token obtained via `POST /api/v1/auth/login`. Some endpoints additionally require admin role.
+</Expandable>

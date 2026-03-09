@@ -1,0 +1,124 @@
+---
+title: Common Issues
+description: Solutions for common Studio Pro plugin installation, licensing, and runtime issues.
+---
+
+## Plugin Not Loading
+
+<Expandable title="Plugin shows in license but doesn't appear in the UI" default-open="true">
+  Check these common causes:
+
+  1. **Plugin directory missing** — verify the plugin exists in the `PLUGINS_DIR` directory:
+     ```bash
+     ls $PLUGINS_DIR/pro-workflows/
+     ```
+  2. **Missing manifest.json** — each plugin needs a `manifest.json` in its root
+  3. **Version mismatch** — the plugin's `requires` field may not match your CE version. Check the API logs:
+     ```bash
+     docker compose logs api | grep "plugin"
+     ```
+  4. **License features** — verify the plugin is listed in your license token's `features` array:
+     ```bash
+     curl http://localhost:3000/api/v1/plugins/manifest
+     ```
+</Expandable>
+
+<Expandable title="License key not recognized" default-open="false">
+  - Verify the `ROADBEAT_LICENSE_KEY` environment variable is set correctly (no extra whitespace or quotes)
+  - Check that the token hasn't expired — decode the JWT at [jwt.io](https://jwt.io) to inspect the `exp` field
+  - Ensure the full token is present — Ed25519 JWTs can be long, check for truncation in your `.env` file
+  - Check API logs for license validation errors:
+    ```bash
+    docker compose logs api | grep -i "license"
+    ```
+</Expandable>
+
+## Migration Failed
+
+<Expandable title="SQL migration fails with 'relation already exists'" default-open="true">
+  This means the migration was already applied. Pro migrations are idempotent — you can safely skip this error. If you want to re-run, drop the existing tables first (development only):
+
+  ```bash
+  psql -U postgres -d roadbeat_studio -c "DROP TABLE IF EXISTS pro_workflows CASCADE;"
+  ```
+
+  <Callout kind="danger">
+    Never drop tables in production. If you need to reset, use a database backup/restore instead.
+  </Callout>
+</Expandable>
+
+<Expandable title="SQL migration fails with permission errors" default-open="false">
+  Ensure the database user has CREATE TABLE permissions:
+
+  ```bash
+  psql -U postgres -d roadbeat_studio -c "GRANT ALL ON SCHEMA public TO studio;"
+  ```
+
+  If using Docker Compose, ensure the `POSTGRES_USER` in your compose file matches the user running migrations.
+</Expandable>
+
+## Runtime Errors
+
+<Expandable title="403 Forbidden when using Pro endpoints" default-open="false">
+  Pro endpoints require JWT authentication, same as CE. Common causes:
+
+  - **Missing token** — include `Authorization: Bearer <token>` header
+  - **Expired token** — refresh your token via `POST /api/v1/auth/refresh`
+  - **Insufficient role** — many Pro admin endpoints require the `admin` role
+  - **Plugin-specific permissions** — some plugins define custom permissions (e.g., `workflows.view`, `scheduling.view`)
+</Expandable>
+
+<Expandable title="Workflow plugin blocks publishing" default-open="false">
+  The Workflows plugin registers a `content.beforePublish` event handler that blocks publishing if the content hasn't completed the configured approval workflow. This is by design.
+
+  To resolve:
+  1. Open the content item
+  2. Check the **Workflow** sidebar panel for the current state
+  3. Complete the required workflow transitions (e.g., submit for review, get approval)
+  4. Only then can the content be published
+
+  If you need to bypass the workflow for testing, an admin can temporarily disable the workflow or transition the content directly to the approved state.
+</Expandable>
+
+<Expandable title="Content locking prevents editing" default-open="false">
+  If another user holds an exclusive lock on content:
+
+  - Wait for them to finish (locks auto-expire after 5 minutes without heartbeat)
+  - Ask an admin to force-unlock: `POST /api/v1/pro/locking/content/:id/lock/force`
+  - Check the **Content Locks** admin page to see all active locks
+</Expandable>
+
+<Expandable title="WebSocket connection fails" default-open="false">
+  The Real-time plugin uses Socket.IO at the `/ws` path. Common issues:
+
+  - **Reverse proxy not configured** — ensure your reverse proxy (Caddy/nginx) forwards WebSocket connections for `/ws`
+  - **Missing dependencies** — the Pro Docker image includes Socket.IO; manual installations need `@nestjs/websockets @nestjs/platform-socket.io socket.io`
+  - **JWT auth** — the WebSocket handshake requires a valid JWT token in `auth.token`
+</Expandable>
+
+## Performance
+
+<Expandable title="Audit log table growing too large" default-open="false">
+  Configure retention policies to automatically clean up old entries:
+
+  1. Go to **Audit Log** → **Retention** tab
+  2. Create a policy (e.g., delete info-level entries after 90 days)
+  3. Click **Enforce Now** to apply immediately
+
+  Or via API:
+  ```bash
+  POST /api/v1/pro/audit/retention
+  { "retentionDays": 90, "severity": "info" }
+
+  POST /api/v1/pro/audit/retention/enforce
+  ```
+</Expandable>
+
+<Expandable title="Scheduled actions not executing" default-open="false">
+  The Scheduling plugin's background processor polls every 30 seconds for due actions. If actions aren't executing:
+
+  1. Check that the plugin is loaded: `curl http://localhost:3000/api/v1/plugins/manifest`
+  2. Check API logs for scheduling processor messages
+  3. Verify the scheduled time has passed (check timezone — all times are stored as UTC)
+  4. Check the action status: `GET /api/v1/pro/scheduling/pending`
+</Expandable>

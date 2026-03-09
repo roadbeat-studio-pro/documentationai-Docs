@@ -1,0 +1,117 @@
+---
+title: Licensing
+description: Understand Studio Pro license tokens, offline validation, grace periods, and feature gating.
+---
+
+## Overview
+
+Studio Pro uses **offline license validation** via Ed25519-signed JWT tokens. No internet connection or "phone home" is required — the license is validated locally using a public key embedded in the CE application.
+
+## License Token
+
+Your license key is an Ed25519-signed JWT set via the `ROADBEAT_LICENSE_KEY` environment variable:
+
+```bash
+ROADBEAT_LICENSE_KEY=eyJhbGciOiJFZDI1NTE5...
+```
+
+The token contains:
+
+```json
+{
+  "sub": "customer-uuid",
+  "org": "Your Organization Name",
+  "tier": "team",
+  "features": ["pro-workflows", "pro-scheduling", "pro-audit", "..."],
+  "max_users": 15,
+  "iat": 1740000000,
+  "exp": 1771536000,
+  "iss": "license.roadbeat.dev"
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `sub` | Customer UUID |
+| `org` | Organization name |
+| `tier` | License tier (starter, team, business, enterprise) |
+| `features` | Array of licensed plugin IDs |
+| `max_users` | Maximum users allowed |
+| `exp` | Expiration timestamp (Unix epoch) |
+
+## Validation
+
+License validation happens at startup:
+
+1. CE reads `ROADBEAT_LICENSE_KEY` from the environment
+2. The JWT signature is verified using the Ed25519 public key embedded in CE
+3. Expiration is checked against the current time
+4. The `features` array determines which plugins are allowed to load
+5. Only plugins listed in `features` AND present in the `PLUGINS_DIR` directory are loaded
+
+<Callout kind="tip">
+  Validation is completely offline. Your Studio instance never contacts an external server to validate the license. This is important for air-gapped and high-security deployments.
+</Callout>
+
+## Grace Period
+
+When a license expires:
+
+| Phase | Duration | Behavior |
+|-------|----------|----------|
+| **Active** | Before expiration | All licensed Pro features work normally |
+| **Grace period** | 7 days after expiration | Pro features continue working; admin sees a renewal warning banner |
+| **Expired** | After grace period | Pro features disable gracefully; CE features remain fully functional |
+
+<Callout kind="success">
+  **Content is never locked.** Even after full license expiration, all your data remains accessible through CE. Pro features simply become unavailable until the license is renewed.
+</Callout>
+
+## Feature Gating
+
+The `FeatureGateService` (from `@roadbeat/plugin-sdk`) controls which features are available:
+
+- **Plugin loading** — only plugins listed in the license `features` array are loaded
+- **Resource limits** — `max_users`, `max_storage_gb`, etc. are enforced at the API level
+- **UI gating** — the frontend queries `GET /api/v1/plugins/manifest` to determine which Pro menu items and editor panels to show
+
+### CE Defaults (No License)
+
+When no license is present, CE enforces these limits:
+
+| Resource | CE Default |
+|----------|-----------|
+| Users | 3 |
+| Webhooks | 3 |
+| API Keys | 2 |
+| Content Versions | 10 per item |
+| Storage | 5 GB |
+| Locales | 1 |
+| Environments | 1 |
+| Discovery Nodes | 1 |
+
+Pro licenses remove all limits (or set custom limits per tier).
+
+## Checking License Status
+
+### Admin UI
+
+The Dashboard shows license status, tier, active plugins, and expiration date in the license info card.
+
+### API
+
+```bash
+# Get license information
+GET /api/v1/plugins/license
+
+# Get full plugin manifest with limits
+GET /api/v1/plugins/manifest
+```
+
+## Renewal
+
+License renewal is handled through your roadbeat account. Updated license tokens are provided as new JWT strings — simply replace the `ROADBEAT_LICENSE_KEY` value and restart Studio.
+
+<Callout kind="info">
+  No data migration is needed when renewing. The new token is validated on the next startup, and all Pro features resume immediately.
+</Callout>

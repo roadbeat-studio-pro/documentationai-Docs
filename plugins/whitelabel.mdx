@@ -1,0 +1,114 @@
+---
+title: White-Labeling
+description: Custom branding with color themes, logo replacement, and accessibility settings.
+---
+
+## Overview
+
+The **White-Labeling** plugin lets you customize Studio's appearance to match your organization's brand. Create color themes, replace logos and branding elements, and configure accessibility settings — all without modifying the source code.
+
+## Key Features
+
+- **Color themes** — create multiple themes with customizable primary, secondary, and accent colors
+- **Theme activation** — switch between themes instantly, with one active theme at a time
+- **Logo and branding** — replace Studio branding with your organization's logo, name, and favicon
+- **Accessibility settings** — configure font sizes, contrast modes, and motion preferences
+- **Theme presets** — seed pre-built theme presets as starting points
+- **Import/Export** — share themes between Studio instances as JSON
+- **CSS generation** — themes generate CSS custom properties for consistent styling
+- **Theme duplication** — clone themes to create variations
+
+## For Admins: Branding Your Studio
+
+### Migration
+
+```bash
+psql -U postgres -d roadbeat_studio -f plugins/pro-whitelabel/migrations/001_create_whitelabel_tables.sql
+```
+
+Tables created: `pro_themes`, `pro_branding_config`
+
+### Creating a Theme
+
+<Steps>
+  <Step title="Navigate to White-Labeling">
+    Go to the **White-Labeling** section in Settings.
+  </Step>
+  <Step title="Create a new theme">
+    Click **Create Theme** and configure colors:
+    - **Primary color** — main brand color for buttons, links, and accents
+    - **Secondary color** — supporting color for backgrounds and borders
+    - **Surface colors** — background, card, sidebar, and header colors
+    - **Text colors** — heading, body, muted, and link colors
+    - **Status colors** — success, warning, error, info indicators
+  </Step>
+  <Step title="Preview and activate">
+    Preview the theme in real-time, then click **Activate** to make it the active theme for all users.
+  </Step>
+</Steps>
+
+### Branding Configuration
+
+Replace default Studio branding:
+
+```bash
+PUT /api/v1/pro/whitelabel/branding
+{
+  "appName": "My News CMS",
+  "logoUrl": "https://cdn.example.com/logo.svg",
+  "logoSmallUrl": "https://cdn.example.com/favicon.svg",
+  "faviconUrl": "https://cdn.example.com/favicon.ico",
+  "loginBackground": "https://cdn.example.com/login-bg.jpg",
+  "footerText": "© 2026 My Organization"
+}
+```
+
+Reset to default Studio branding:
+
+```bash
+POST /api/v1/pro/whitelabel/branding/reset
+```
+
+### Accessibility Settings
+
+Configure accessibility preferences:
+
+```bash
+PUT /api/v1/pro/whitelabel/accessibility
+{
+  "fontSize": "medium",
+  "highContrast": false,
+  "reduceMotion": false,
+  "focusIndicators": true
+}
+```
+
+### Theme Management
+
+```bash
+# Seed pre-built presets
+POST /api/v1/pro/whitelabel/themes/seed-presets
+
+# Export theme as JSON
+GET /api/v1/pro/whitelabel/themes/:id/export
+
+# Import theme from JSON
+POST /api/v1/pro/whitelabel/themes/import
+
+# Get generated CSS for a theme
+GET /api/v1/pro/whitelabel/themes/:id/css
+
+# Duplicate a theme
+POST /api/v1/pro/whitelabel/themes/:id/duplicate
+
+# Get the fully resolved theme + branding + accessibility
+GET /api/v1/pro/whitelabel/resolved
+```
+
+## For Editors: What Changes
+
+When white-labeling is active, you'll see your organization's branding throughout Studio — custom colors, logo, and app name. The functionality is identical; only the visual appearance changes.
+
+## API Reference
+
+All white-labeling endpoints are in the [Studio API Reference](https://docs.studio.roadbeat.dev/api-reference/overview) under the whitelabel-related tags.

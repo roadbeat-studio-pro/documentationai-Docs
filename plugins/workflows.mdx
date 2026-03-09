@@ -1,0 +1,142 @@
+---
+title: Editorial Workflows
+description: Configurable content approval workflows with states, transitions, task assignment, and publish guards.
+---
+
+## Overview
+
+The **Editorial Workflows** plugin replaces CE's simple draft/published lifecycle with a fully configurable state machine. Define custom workflow stages (e.g., Draft → In Review → Approved → Published), assign review tasks to team members, and automatically prevent publishing without approval.
+
+<Callout kind="info">
+  When this plugin is active, content cannot be published without completing the configured workflow. The plugin registers a `content.beforePublish` event handler that blocks unauthorized publishing.
+</Callout>
+
+## Key Features
+
+- **Custom workflow definitions** — design workflows with any number of states and transitions
+- **Role-based transitions** — control who can move content between states
+- **Task assignment** — assign review tasks to specific users with due dates
+- **Publish guard** — blocks publishing until content reaches an approved state
+- **Auto-initialization** — new content automatically enters the workflow's initial state
+- **Workflow builder** — templates, simulation, analysis, import/export
+- **Editor sidebar panel** — shows current workflow state and available actions
+
+## For Admins: Setting Up Workflows
+
+### Creating a Workflow
+
+<Steps>
+  <Step title="Navigate to Workflows">
+    Go to **Workflows** in the Pro section of the sidebar.
+  </Step>
+  <Step title="Create or use a template">
+    Click **Create Workflow** to start from scratch, or use the Workflow Builder's template library. The default "Editorial Review" template provides a common setup: Draft → In Review → Approved → Published.
+  </Step>
+  <Step title="Define states">
+    Add states with names, colors, and role requirements. Mark one state as **initial** (where new content starts) and one or more as **final** (e.g., Published, Archived).
+
+    ```json
+    {
+      "id": "in_review",
+      "name": { "en": "In Review", "de": "In Prüfung" },
+      "color": "#F59E0B",
+      "isInitial": false,
+      "isFinal": false,
+      "requiredRoles": ["editor", "admin"]
+    }
+    ```
+  </Step>
+  <Step title="Define transitions">
+    Configure which state changes are allowed and who can perform them:
+
+    ```json
+    {
+      "from": "draft",
+      "to": "in_review",
+      "action": "submit_for_review",
+      "label": { "en": "Submit for Review" },
+      "requiredRoles": ["editor", "admin"],
+      "requiresComment": false
+    }
+    ```
+  </Step>
+  <Step title="Assign to content types">
+    Select which content types use this workflow. Multiple content types can share the same workflow definition.
+  </Step>
+</Steps>
+
+### Workflow Builder
+
+The Workflow Builder provides advanced tools for creating and managing workflows:
+
+- **Templates** — pre-built workflows (Editorial Review, Legal Approval, Translation Review)
+- **Simulation** — test transitions from any state, find paths between states
+- **Analysis** — detect dead-ends, orphaned states, unreachable final states
+- **Import/Export** — share workflow definitions as JSON files
+- **Duplication** — clone an existing workflow to create variations
+
+### Migration
+
+```bash
+psql -U postgres -d roadbeat_studio -f plugins/pro-workflows/migrations/001_create_workflow_tables.sql
+```
+
+Tables created: `pro_workflows`, `pro_workflow_instances`, `pro_workflow_tasks`
+
+## For Editors: Using Workflows
+
+### Content Editor Sidebar
+
+When editing content, the **Workflow** sidebar panel shows:
+
+- **Current state** — the content's position in the workflow (e.g., "Draft", "In Review")
+- **Available transitions** — buttons for allowed state changes based on your role
+- **Comment requirement** — some transitions require a comment (e.g., "Request Changes")
+
+### Submitting Content for Review
+
+<Steps>
+  <Step title="Open your content item">
+    Navigate to the content you want to submit.
+  </Step>
+  <Step title="Click the transition button">
+    In the Workflow sidebar panel, click **Submit for Review** (or the appropriate transition action).
+  </Step>
+  <Step title="Add a comment (if required)">
+    Some transitions require a comment explaining the submission.
+  </Step>
+  <Step title="Content moves to the next state">
+    The content is now in the review queue. The assigned reviewer is notified.
+  </Step>
+</Steps>
+
+### Tasks
+
+When content is assigned for review, a **task** is created. View your pending tasks at **Tasks** in the sidebar.
+
+Each task shows:
+- Content item title and type
+- Workflow state requiring action
+- Due date and priority
+- Assignee
+
+Actions: **Complete** (mark as done), **Reassign** (to another user), **Cancel**.
+
+<Callout kind="tip">
+  The Tasks menu item shows a **badge count** of your pending tasks, so you always know how many items need your attention.
+</Callout>
+
+## API Reference
+
+All workflow endpoints are documented in the [Studio API Reference](https://docs.studio.roadbeat.dev/api-reference/overview) under the `pro-workflows` tag. Key endpoints:
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/v1/pro/workflows/definitions` | List workflow definitions |
+| `POST /api/v1/pro/workflows/definitions` | Create a workflow |
+| `POST /api/v1/pro/workflows/definitions/seed` | Seed default workflow |
+| `GET /api/v1/pro/workflows/instances/:contentId` | Get workflow state for content |
+| `POST /api/v1/pro/workflows/instances/:contentId/transition` | Transition to new state |
+| `GET /api/v1/pro/tasks` | List tasks |
+| `POST /api/v1/pro/tasks/:id/complete` | Complete a task |
+| `POST /api/v1/pro/tasks/:id/assign` | Assign a task |

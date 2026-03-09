@@ -1,5 +1,6 @@
 {
-  "name": "Starter Kit",
+  "name": "roadbeat Studio Pro",
+  "initialRoute": "introduction",
   "colors": {
     "light": {
       "brand": "#F97316"
@@ -15,7 +16,7 @@
         "icon": "book",
         "groups": [
           {
-            "group": "Start Here",
+            "group": "Getting Started",
             "icon": "rocket",
             "pages": [
               {
@@ -24,73 +25,146 @@
                 "icon": "home"
               },
               {
-                "title": "Quickstart",
-                "path": "quickstart",
-                "icon": "zap"
+                "title": "Installation",
+                "path": "installation",
+                "icon": "download"
               },
               {
-                "title": "Components",
-                "path": "components",
-                "icon": "code"
+                "title": "Licensing",
+                "path": "licensing",
+                "icon": "key"
               }
             ]
           },
           {
-            "group": "Components",
-            "icon": "layers",
+            "group": "Workflows & Publishing",
+            "icon": "git-branch",
             "pages": [
               {
-                "title": "Images",
-                "path": "components/images",
-                "icon": "image"
+                "title": "Editorial Workflows",
+                "path": "plugins/workflows",
+                "icon": "git-branch"
               },
               {
-                "title": "Cards",
-                "path": "components/cards",
-                "icon": "square"
+                "title": "Content Scheduling",
+                "path": "plugins/scheduling",
+                "icon": "calendar-clock"
               },
               {
-                "title": "Code",
-                "path": "components/code",
-                "icon": "code"
-              },
-              {
-                "title": "Callouts",
-                "path": "components/callouts",
-                "icon": "message-square"
-              },
-              {
-                "title": "Steps",
-                "path": "components/steps",
-                "icon": "list-ordered"
-              },
-              {
-                "title": "Tabs",
-                "path": "components/tabs",
-                "icon": "columns"
-              }
-            ]
-          }
-        ]
-      },
-      {
-        "tab": "API Reference",
-        "icon": "code",
-        "groups": [
-          {
-            "group": "Overview",
-            "icon": "file-text",
-            "pages": [
-              {
-                "title": "Authentication",
-                "path": "authentication",
+                "title": "Content Locking",
+                "path": "plugins/locking",
                 "icon": "lock"
+              },
+              {
+                "title": "Preview API",
+                "path": "plugins/preview",
+                "icon": "eye"
               }
             ]
           },
           {
-            "group": "Sample Endpoints",
-            "openapi": "openapi.yaml"
+            "group": "Content Tools",
+            "icon": "wrench",
+            "pages": [
+              {
+                "title": "Content Import",
+                "path": "plugins/import",
+                "icon": "upload"
+              },
+              {
+                "title": "Content Export",
+                "path": "plugins/export",
+                "icon": "download"
+              },
+              {
+                "title": "Version Comparison",
+                "path": "plugins/versioning",
+                "icon": "git-compare"
+              },
+              {
+                "title": "Custom Layouts",
+                "path": "plugins/layouts",
+                "icon": "layout"
+              }
+            ]
+          },
+          {
+            "group": "Security & Access",
+            "icon": "shield",
+            "pages": [
+              {
+                "title": "Advanced Roles",
+                "path": "plugins/advanced-roles",
+                "icon": "shield-check"
+              },
+              {
+                "title": "SSO Integration",
+                "path": "plugins/sso",
+                "icon": "log-in"
+              },
+              {
+                "title": "Audit Logging",
+                "path": "plugins/audit",
+                "icon": "clipboard-list"
+              }
+            ]
+          },
+          {
+            "group": "Integrations",
+            "icon": "plug",
+            "pages": [
+              {
+                "title": "GraphQL API",
+                "path": "plugins/graphql",
+                "icon": "braces"
+              },
+              {
+                "title": "WebSockets & Real-time",
+                "path": "plugins/realtime",
+                "icon": "radio"
+              },
+              {
+                "title": "Advanced Webhooks",
+                "path": "plugins/webhooks",
+                "icon": "webhook"
+              },
+              {
+                "title": "Notifications",
+                "path": "plugins/notifications",
+                "icon": "bell"
+              }
+            ]
+          },
+          {
+            "group": "Infrastructure",
+            "icon": "server",
+            "pages": [
+              {
+                "title": "Environments",
+                "path": "plugins/environments",
+                "icon": "layers"
+              },
+              {
+                "title": "Bulk Asset Operations",
+                "path": "plugins/bulk-ops",
+                "icon": "boxes"
+              },
+              {
+                "title": "Video Processing",
+                "path": "plugins/media",
+                "icon": "video"
+              },
+              {
+                "title": "White-Labeling",
+                "path": "plugins/whitelabel",
+                "icon": "palette"
+              },
+              {
+                "title": "API Explorer",
+                "path": "plugins/api-explorer",
+                "icon": "terminal"
+              }
+            ]
           }
         ]
       },
@@ -109,8 +183,12 @@
             "expandable": false,
             "pages": [
               {
-                "title": "Documentation Source",
-                "path": "help-center/faq/getting-started"
+                "title": "General",
+                "path": "help-center/faq/general"
+              },
+              {
+                "title": "Plugin Setup",
+                "path": "help-center/faq/plugin-setup"
               }
             ]
           },
@@ -120,19 +198,8 @@
             "expandable": false,
             "pages": [
               {
-                "title": "Page Missing in Sidebar",
-                "path": "help-center/troubleshooting/install-error"
-              }
-            ]
-          },
-          {
-            "group": "Guides",
-            "icon": "book-open",
-            "expandable": false,
-            "pages": [
-              {
-                "title": "Create Your First Page",
-                "path": "help-center/guides/setup-project"
+                "title": "Common Issues",
+                "path": "help-center/troubleshooting/common-issues"
               }
             ]
           }

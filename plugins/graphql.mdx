@@ -1,0 +1,126 @@
+---
+title: GraphQL API
+description: Auto-generated GraphQL schema from content types with dynamic queries, filtering, and responsive image resolution.
+---
+
+## Overview
+
+The **GraphQL API** plugin auto-generates a full GraphQL SDL schema from your content type JSON schemas. Query content with type-safe fields, filtering, pagination, and built-in asset resolution with responsive images — all without writing any schema code.
+
+## Key Features
+
+- **Auto-generated SDL** — GraphQL types generated from content type JSON schemas with system fields
+- **Per-type queries** — single item and collection queries for each content type
+- **Filtering** — StringFilter (eq, ne, in, contains, startsWith), NumberFilter (gt, gte, lt, lte), BooleanFilter, DateTimeFilter + AND/OR combinators
+- **Pagination and ordering** — limit, offset, orderBy with ascending/descending
+- **Reference resolution** — linked content items resolved automatically
+- **Asset resolution** — responsive images with srcSet, breakpoints, LQIP, dominant color
+- **Batch queries** — execute multiple queries in a single request
+- **Per-org configuration** — playground, introspection, max depth, rate limit, caching
+
+## For Admins: Configuration
+
+### Migration
+
+```bash
+psql -U postgres -d roadbeat_studio -f plugins/pro-graphql/migrations/001_create_graphql_config.sql
+```
+
+Table created: `pro_graphql_configs`
+
+### GraphQL Configuration
+
+Configure per-organization settings:
+
+```bash
+PUT /api/v1/pro/graphql/config
+{
+  "enabled": true,
+  "playgroundEnabled": true,
+  "introspectionEnabled": true,
+  "maxDepth": 10,
+  "maxComplexity": 1000,
+  "rateLimitPerMin": 100,
+  "includeDraft": false,
+  "defaultLocale": "en",
+  "cacheTtlSeconds": 60
+}
+```
+
+### Schema Inspection
+
+View the generated schema:
+
+```bash
+# Full GraphQL SDL with descriptions
+GET /api/v1/pro/graphql/schema
+
+# Raw SDL string (for IDE plugins)
+GET /api/v1/pro/graphql/schema/sdl
+
+# Content types with field mappings
+GET /api/v1/pro/graphql/schema/types
+
+# Field mappings for a specific type
+GET /api/v1/pro/graphql/schema/type/:contentTypeId
+```
+
+## For Developers: Querying Content
+
+### Single Item Query
+
+```bash
+POST /api/v1/pro/graphql/query
+{
+  "contentType": "news",
+  "single": true,
+  "id": "content-uuid",
+  "locale": "en"
+}
+```
+
+### Collection Query with Filters
+
+```bash
+POST /api/v1/pro/graphql/query
+{
+  "contentType": "news",
+  "where": {
+    "status": { "eq": "published" },
+    "data.classification.category": { "in": ["politics", "economy"] }
+  },
+  "orderBy": "publishedAt_DESC",
+  "limit": 10,
+  "offset": 0
+}
+```
+
+### Batch Queries
+
+Execute multiple queries in one request:
+
+```bash
+POST /api/v1/pro/graphql/query/batch
+{
+  "queries": [
+    { "contentType": "news", "limit": 5, "orderBy": "publishedAt_DESC" },
+    { "contentType": "event", "limit": 3, "where": { "data.schedule.start_date": { "gte": "2026-03-01" } } }
+  ]
+}
+```
+
+### Asset Resolution with Responsive Images
+
+```bash
+GET /api/v1/pro/graphql/resolve/asset/:assetId?w=800&h=600&fit=cover
+```
+
+Returns responsive image data including srcSet at multiple breakpoints (320–1920px), WebP format, LQIP base64 placeholder, and dominant background color.
+
+<Callout kind="info">
+  The GraphQL plugin uses a REST-based query interface rather than a traditional GraphQL endpoint. This keeps the plugin self-contained without requiring Apollo Server as a dependency.
+</Callout>
+
+## API Reference
+
+All GraphQL endpoints are in the [Studio API Reference](https://docs.studio.roadbeat.dev/api-reference/overview) under the `pro-graphql` tag.

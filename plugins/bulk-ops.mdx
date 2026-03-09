@@ -1,0 +1,112 @@
+---
+title: Bulk Asset Operations
+description: Bulk move, delete, tag, and download assets across the Asset Library.
+---
+
+## Overview
+
+The **Bulk Asset Operations** plugin adds batch operations for the Asset Library. Select multiple assets and move them to a folder, delete them, add or remove tags, or download them as a ZIP archive — all in one operation.
+
+## Key Features
+
+- **Bulk move** — move multiple assets to a target folder
+- **Bulk delete** — delete multiple assets at once (with reference safety check)
+- **Bulk add tags** — add tags to multiple assets simultaneously
+- **Bulk remove tags** — remove tags from multiple assets
+- **Bulk download** — download selected assets as a ZIP archive
+- **Bulk info** — get aggregate information for a set of assets
+- **No additional tables** — operates on CE's existing asset tables
+
+## For Admins: Setup
+
+No migration required — this plugin uses CE's existing asset tables. Simply enable the plugin via your license key.
+
+## For Editors: Using Bulk Operations
+
+### Selecting Assets
+
+In the Asset Library, use checkboxes to select multiple assets. Once you have a selection, the bulk action toolbar appears with available operations.
+
+### Bulk Move
+
+Move selected assets to a different folder:
+
+```bash
+POST /api/v1/pro/assets/bulk/move
+{
+  "assetIds": ["uuid-1", "uuid-2", "uuid-3"],
+  "targetFolderId": "folder-uuid"
+}
+```
+
+### Bulk Delete
+
+Delete multiple assets at once:
+
+```bash
+POST /api/v1/pro/assets/bulk/delete
+{
+  "assetIds": ["uuid-1", "uuid-2", "uuid-3"]
+}
+```
+
+<Callout kind="alert">
+  Bulk delete checks for content references. Assets referenced by content items will not be deleted unless you use the force option. The response shows which assets were deleted and which were skipped.
+</Callout>
+
+### Bulk Tagging
+
+Add or remove tags from multiple assets:
+
+```bash
+# Add tags
+POST /api/v1/pro/assets/bulk/tags/add
+{
+  "assetIds": ["uuid-1", "uuid-2"],
+  "tags": ["campaign-2026", "hero-image"]
+}
+
+# Remove tags
+POST /api/v1/pro/assets/bulk/tags/remove
+{
+  "assetIds": ["uuid-1", "uuid-2"],
+  "tags": ["outdated"]
+}
+```
+
+### Bulk Download
+
+Download selected assets as a ZIP archive:
+
+```bash
+POST /api/v1/pro/assets/bulk/download
+{
+  "assetIds": ["uuid-1", "uuid-2", "uuid-3"]
+}
+```
+
+### Bulk Info
+
+Get aggregate information for selected assets:
+
+```bash
+POST /api/v1/pro/assets/bulk/info
+{
+  "assetIds": ["uuid-1", "uuid-2", "uuid-3"]
+}
+```
+
+Returns total size, file type breakdown, and reference counts.
+
+## API Reference
+
+All bulk asset endpoints are in the [Studio API Reference](https://docs.studio.roadbeat.dev/api-reference/overview) under the bulk asset tags.
+
+| Endpoint | Description |
+|----------|-------------|
+| `POST /api/v1/pro/assets/bulk/move` | Move assets to folder |
+| `POST /api/v1/pro/assets/bulk/delete` | Delete multiple assets |
+| `POST /api/v1/pro/assets/bulk/tags/add` | Add tags to assets |
+| `POST /api/v1/pro/assets/bulk/tags/remove` | Remove tags from assets |
+| `POST /api/v1/pro/assets/bulk/download` | Download as ZIP |
+| `POST /api/v1/pro/assets/bulk/info` | Aggregate info |

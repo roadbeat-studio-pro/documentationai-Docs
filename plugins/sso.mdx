@@ -1,0 +1,130 @@
+---
+title: SSO Integration
+description: SAML 2.0, OAuth 2.0/OIDC, and SCIM 2.0 user provisioning for enterprise identity management.
+---
+
+## Overview
+
+The **SSO Integration** plugin connects Studio to your enterprise identity provider. Support for SAML 2.0, OAuth 2.0/OIDC, and SCIM 2.0 enables single sign-on, just-in-time user provisioning, and automated role mapping.
+
+## Key Features
+
+- **SAML 2.0** — integrate with enterprise IdPs (Okta, Azure AD, OneLogin, etc.)
+- **OAuth 2.0 / OIDC** — OpenID Connect for modern SSO providers
+- **SCIM 2.0** — automatic user provisioning and deprovisioning from your IdP
+- **JIT role mapping** — map IdP groups/attributes to Studio roles automatically
+- **Domain enforcement** — require SSO login for specific email domains
+- **Login method detection** — check if a user should use SSO or password-based login
+
+## For Admins: Configuration
+
+### Migration
+
+```bash
+psql -U postgres -d roadbeat_studio -f plugins/pro-sso/migrations/001_create_sso_tables.sql
+```
+
+Tables created: `pro_sso_configs`, `pro_sso_role_mappings`
+
+### Setting Up SAML 2.0
+
+<Steps>
+  <Step title="Get your IdP metadata">
+    From your identity provider (Okta, Azure AD, etc.), obtain the SAML metadata URL or XML, entity ID, and SSO URL.
+  </Step>
+  <Step title="Configure SSO in Studio">
+    Navigate to the SSO configuration in Settings, or use the API:
+
+    ```bash
+    POST /api/v1/pro/sso/config
+    {
+      "provider": "saml",
+      "entityId": "https://studio.example.com",
+      "ssoUrl": "https://idp.example.com/saml/sso",
+      "certificate": "-----BEGIN CERTIFICATE-----\n...",
+      "enforced": true,
+      "enforcedDomains": ["example.com"]
+    }
+    ```
+  </Step>
+  <Step title="Configure your IdP">
+    In your IdP, set the ACS (Assertion Consumer Service) URL to:
+    ```
+    https://your-studio.com/api/v1/pro/sso/saml/callback
+    ```
+  </Step>
+  <Step title="Set up role mappings">
+    Map IdP groups or attributes to Studio roles:
+
+    ```bash
+    POST /api/v1/pro/sso/role-mappings
+    {
+      "idpAttribute": "groups",
+      "idpValue": "content-editors",
+      "studioRole": "editor"
+    }
+    ```
+  </Step>
+  <Step title="Test the integration">
+    Use the SAML initiate endpoint to test: `GET /api/v1/pro/sso/saml/initiate`
+  </Step>
+</Steps>
+
+### Setting Up OAuth 2.0 / OIDC
+
+```bash
+POST /api/v1/pro/sso/config
+{
+  "provider": "oidc",
+  "clientId": "your-client-id",
+  "clientSecret": "your-client-secret",
+  "issuerUrl": "https://accounts.google.com",
+  "scopes": ["openid", "profile", "email"],
+  "enforced": false
+}
+```
+
+Callback URL for your OAuth provider:
+```
+https://your-studio.com/api/v1/pro/sso/oauth/callback
+```
+
+### SCIM 2.0 Provisioning
+
+SCIM enables automatic user lifecycle management from your IdP:
+
+- **Create** — when a user is assigned to Studio in your IdP, they're automatically created in Studio
+- **Update** — name, email, and role changes sync automatically
+- **Delete/Deactivate** — when a user is removed from Studio in your IdP, their Studio account is deactivated
+
+SCIM endpoint base URL:
+```
+https://your-studio.com/api/v1/pro/sso/scim/v2/
+```
+
+Generate a SCIM bearer token:
+```bash
+POST /api/v1/pro/sso/config/regenerate-scim-token
+```
+
+### Domain Enforcement
+
+When SSO is enforced for specific domains, users with matching email addresses are redirected to SSO login instead of the password form:
+
+```bash
+POST /api/v1/pro/sso/check-login-method
+{ "email": "user@example.com" }
+# Returns: { "method": "saml", "ssoUrl": "..." }
+```
+
+## For Editors: Logging In
+
+When SSO is configured, the login page shows a **Sign in with SSO** button (or redirects automatically if domain enforcement is enabled). Click it, authenticate with your organization's identity provider, and you'll be logged into Studio with your assigned role.
+
+<Callout kind="info">
+  If your admin has configured role mappings, your Studio role is determined by your IdP groups — you don't need to ask an admin to set your role manually.
+</Callout>
+
+## API Reference
+
+All SSO endpoints are in the [Studio API Reference](https://docs.studio.roadbeat.dev/api-reference/overview) under the SSO-related tags.

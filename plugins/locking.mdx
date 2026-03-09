@@ -1,0 +1,83 @@
+---
+title: Content Locking
+description: Pessimistic content locking prevents concurrent editing conflicts with advisory and exclusive lock modes.
+---
+
+## Overview
+
+The **Content Locking** plugin prevents concurrent editing conflicts by allowing users to acquire locks on content items. When a user starts editing, an **exclusive lock** is acquired automatically — other users are blocked from saving changes until the lock is released.
+
+## Key Features
+
+- **Exclusive locks** — blocks other users from saving (default)
+- **Advisory locks** — warns other users but doesn't block (for soft collaboration)
+- **Auto-expiring** — locks expire after 5 minutes without a heartbeat
+- **Heartbeat extension** — the editor sidebar automatically extends the lock every 2 minutes
+- **Force-unlock** — admins can break any lock
+- **Lock management** — view all active locks across the organization
+
+## For Admins: Configuration
+
+### Migration
+
+```bash
+psql -U postgres -d roadbeat_studio -f plugins/pro-locking/migrations/001_create_content_locks_table.sql
+```
+
+Table created: `pro_content_locks`
+
+### Managing Locks
+
+Navigate to **Content Locks** in the sidebar to view all active locks. From here you can:
+
+- See who holds each lock and when it was acquired
+- **Force-unlock** any content item if a lock is stuck or a user is unavailable
+
+<Callout kind="alert">
+  Force-unlocking may cause the locked user to lose unsaved changes. Use with caution — coordinate with the lock holder when possible.
+</Callout>
+
+## For Editors: Working with Locks
+
+### Automatic Locking
+
+When you open a content item in the editor, the **Lock** sidebar panel automatically:
+
+1. Acquires an exclusive lock on the content
+2. Shows the lock status (locked by you)
+3. Sends heartbeat pings every 2 minutes to keep the lock alive
+4. Releases the lock when you navigate away
+
+### If Content Is Locked by Someone Else
+
+If another user holds the lock, you'll see:
+
+- **Who** holds the lock
+- **When** it was acquired
+- The content opens in **read-only mode** — you cannot save changes
+
+Wait for the other user to finish editing, or ask an admin to force-unlock.
+
+### Lock Types
+
+| Type | Behavior |
+|------|----------|
+| **Exclusive** (default) | Other users cannot save — their update requests are blocked with a `403 Forbidden` |
+| **Advisory** | Other users see a warning but can still save — useful for soft collaboration |
+
+## Event Integration
+
+The plugin registers a `content.beforeUpdate` event handler at priority 10. When another user tries to save content that has an exclusive lock held by someone else, the event is **prevented** and CE throws a `ForbiddenException`.
+
+## API Reference
+
+All locking endpoints are in the [Studio API Reference](https://docs.studio.roadbeat.dev/api-reference/overview) under the `pro-locking` tag.
+
+| Endpoint | Description |
+|----------|-------------|
+| `POST /api/v1/pro/locking/content/:id/lock` | Acquire a lock |
+| `DELETE /api/v1/pro/locking/content/:id/lock` | Release a lock (owner only) |
+| `POST /api/v1/pro/locking/content/:id/lock/extend` | Heartbeat extend |
+| `GET /api/v1/pro/locking/content/:id/lock` | Check lock status |
+| `POST /api/v1/pro/locking/content/:id/lock/force` | Force-unlock (admin) |
+| `GET /api/v1/pro/locking/locks` | List all active locks |

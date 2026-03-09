@@ -1,0 +1,106 @@
+---
+title: Notifications
+description: In-app notifications with external channel integrations (Slack, Teams, Discord), preferences, and digest support.
+---
+
+## Overview
+
+The **Notifications** plugin provides a full notification system for Studio — in-app notifications triggered by content events, plus external channel integrations for Slack, Microsoft Teams, Discord, and generic webhooks. Users can configure per-type preferences and digest frequency.
+
+## Key Features
+
+- **In-app notifications** — triggered automatically on content publish, update, delete, and new comments
+- **External channels** — Slack, Microsoft Teams, Discord, and generic webhook integrations
+- **Per-user preferences** — digest frequency, do-not-disturb, per-type overrides, muting
+- **Notification management** — mark read, archive, delete, mark all read, delete all read
+- **Channel management** — create, test, update, delete notification channels
+- **Analytics** — notification statistics and overview
+- **Housekeeping** — cleanup old notifications by age
+
+## For Admins: Configuration
+
+### Migration
+
+```bash
+psql -U postgres -d roadbeat_studio -f plugins/pro-notifications/migrations/001_create_notification_tables.sql
+```
+
+Tables created: `pro_notifications`, `pro_notification_channels`, `pro_notification_preferences`
+
+### Setting Up External Channels
+
+<Tabs>
+  <Tab title="Slack" icon="hash">
+    1. Create a Slack incoming webhook URL in your Slack workspace
+    2. In Studio, go to **Notifications** in Settings
+    3. Click **Add Channel** → select **Slack**
+    4. Paste the webhook URL and configure which events to forward
+    5. Click **Test** to verify connectivity
+  </Tab>
+  <Tab title="Microsoft Teams" icon="message-square">
+    1. Create an incoming webhook connector in your Teams channel
+    2. Add a new channel in Studio → select **Teams**
+    3. Paste the webhook URL
+    4. Test the connection
+  </Tab>
+  <Tab title="Discord" icon="message-circle">
+    1. Create a Discord webhook in your server's channel settings
+    2. Add a new channel in Studio → select **Discord**
+    3. Paste the webhook URL
+    4. Test the connection
+  </Tab>
+  <Tab title="Generic Webhook" icon="webhook">
+    1. Add a new channel → select **Webhook**
+    2. Enter any HTTP endpoint URL
+    3. Configure headers and authentication
+    4. Test the connection
+  </Tab>
+</Tabs>
+
+### Housekeeping
+
+Clean up old notifications:
+
+```bash
+POST /api/v1/pro/notifications/housekeeping?days=30
+```
+
+## For Editors: Managing Notifications
+
+### Viewing Notifications
+
+Navigate to **Notifications** in the sidebar or click the bell icon in the header to see your notifications. Each notification shows:
+
+- **Type icon** — content published, updated, deleted, comment, etc.
+- **Title and message** — what happened and to which content
+- **Timestamp** — when it occurred
+- **Read status** — unread notifications are highlighted
+
+### Actions
+
+- **Mark as read** — click a notification to mark it as read
+- **Mark all read** — clear all unread indicators at once
+- **Archive** — move a notification to the archive
+- **Delete** — permanently remove a notification
+
+### Notification Preferences
+
+Configure your personal notification preferences:
+
+```bash
+GET /api/v1/pro/notifications/preferences/me
+PUT /api/v1/pro/notifications/preferences/me
+{
+  "digestFrequency": "daily",
+  "doNotDisturb": false,
+  "typeOverrides": {
+    "content.published": { "enabled": true, "channels": ["in-app", "slack"] },
+    "content.updated": { "enabled": false },
+    "comment.created": { "enabled": true, "channels": ["in-app"] }
+  }
+}
+```
+
+## API Reference
+
+All notification endpoints are in the [Studio API Reference](https://docs.studio.roadbeat.dev/api-reference/overview) under the notification-related tags.

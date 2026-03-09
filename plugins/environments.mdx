@@ -1,0 +1,130 @@
+---
+title: Environments
+description: Manage dev/staging/production environments with content promotion, sync, cloning, and aliases.
+---
+
+## Overview
+
+The **Environments** plugin lets you manage multiple content environments — development, staging, and production. Promote content between environments, compare differences, clone environments for testing, and use aliases for zero-downtime environment switching.
+
+## Key Features
+
+- **Environment CRUD** — create named environments with slug, color, and sort order
+- **Production flag** — exactly one environment is marked as production (atomic switch)
+- **Content promotion** — promote individual content items between environments
+- **Bulk sync** — sync all content between two environments with content type and status filters
+- **Environment comparison** — diff content between two environments (only_a, only_b, same_version, different_version)
+- **Cloning** — clone an environment with optional content copy
+- **Aliases** — named pointers to environments for zero-downtime switching (e.g., "master" → production)
+- **Sync logs** — track all promote/sync/clone operations
+
+## For Admins: Setting Up Environments
+
+### Migration
+
+```bash
+psql -U postgres -d roadbeat_studio -f plugins/pro-environments/migrations/001_create_environment_tables.sql
+```
+
+Tables created: `pro_environments`, `pro_environment_aliases`, `pro_environment_content`, `pro_sync_logs`
+
+### Seeding Default Environments
+
+Create the standard production/staging/development environments:
+
+```bash
+POST /api/v1/pro/environments/seed
+```
+
+This creates three environments with appropriate colors and sort orders, plus a "master" alias pointing to production.
+
+### Promoting Content
+
+Move content from one environment to another:
+
+```bash
+POST /api/v1/pro/environments/promote
+{
+  "contentId": "uuid",
+  "fromEnvironmentId": "staging-id",
+  "toEnvironmentId": "production-id"
+}
+```
+
+### Bulk Sync
+
+Sync all content between environments:
+
+```bash
+POST /api/v1/pro/environments/sync
+{
+  "fromEnvironmentId": "staging-id",
+  "toEnvironmentId": "production-id",
+  "contentTypeFilter": "news",
+  "statusFilter": "published"
+}
+```
+
+### Comparing Environments
+
+See what differs between two environments:
+
+```bash
+POST /api/v1/pro/environments/compare
+{
+  "environmentAId": "staging-id",
+  "environmentBId": "production-id"
+}
+```
+
+Returns categorized content: items only in A, only in B, same version in both, or different versions.
+
+### Cloning
+
+Create a sandbox by cloning an existing environment:
+
+```bash
+POST /api/v1/pro/environments/:id/clone
+{
+  "name": "Feature Branch Test",
+  "slug": "feature-test",
+  "includeContent": true,
+  "contentTypeFilter": "news"
+}
+```
+
+### Aliases
+
+Aliases are named pointers that can be atomically switched between environments:
+
+```bash
+# Create alias
+POST /api/v1/pro/environments/aliases
+{ "alias": "live", "environmentId": "production-id", "description": "Live content" }
+
+# Switch alias to a different environment (zero-downtime)
+PUT /api/v1/pro/environments/aliases/:id
+{ "environmentId": "new-production-id" }
+
+# Resolve an alias to its environment ID
+POST /api/v1/pro/environments/aliases/resolve
+{ "identifier": "live" }
+```
+
+## For Editors: Working with Environments
+
+When environments are configured, editors may see an environment selector in the admin UI. Content created in one environment is isolated from other environments until explicitly promoted.
+
+Typical workflow:
+
+1. Create and edit content in the **Development** environment
+2. When ready, promote to **Staging** for review
+3. After approval, promote to **Production** to go live
+
+<Callout kind="info">
+  Only admins can promote, sync, and manage environments. Editors work within their assigned environment.
+</Callout>
+
+## API Reference
+
+All environment endpoints are in the [Studio API Reference](https://docs.studio.roadbeat.dev/api-reference/overview) under the `pro-environments` tag.

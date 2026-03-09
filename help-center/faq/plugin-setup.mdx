@@ -1,0 +1,100 @@
+---
+title: Plugin Setup FAQ
+description: Frequently asked questions about installing, configuring, and managing Studio Pro plugins.
+---
+
+## Installation
+
+<Expandable title="How do I install Studio Pro?" default-open="true">
+  The recommended method is the **Pro Docker image**:
+
+  1. Log in to the private registry: `docker login registry.roadbeat.dev`
+  2. Replace the CE image in your `docker-compose.yml` with `registry.roadbeat.dev/studio-pro:latest`
+  3. Set `ROADBEAT_LICENSE_KEY` in your environment
+  4. Run plugin database migrations
+  5. Start the stack: `docker compose up -d`
+
+  See the [Installation Guide](/installation) for full details.
+</Expandable>
+
+<Expandable title="How do I run plugin database migrations?" default-open="false">
+  Each plugin that needs database tables includes SQL migration files in its `migrations/` directory. Apply them with:
+
+  ```bash
+  psql -U postgres -d roadbeat_studio -f plugins/pro-workflows/migrations/001_create_workflow_tables.sql
+  ```
+
+  All Pro tables use the `pro_` prefix and never conflict with CE tables. See the [Installation Guide](/installation#database-tables) for the full table listing per plugin.
+</Expandable>
+
+<Expandable title="Can I install only specific plugins?" default-open="false">
+  With the Docker image, all plugins are included but only **licensed** plugins are loaded. Your license token's `features` array controls which plugins activate at startup.
+
+  With manual installation via npm, you can install only the specific plugin packages you need.
+</Expandable>
+
+<Expandable title="How do I verify plugins are loaded?" default-open="false">
+  Check the plugin manifest endpoint:
+
+  ```bash
+  curl http://localhost:3000/api/v1/plugins/manifest
+  ```
+
+  This returns the list of active plugins, their versions, and your license limits. You can also check the API server logs for `[plugin-name] Plugin initialized` messages.
+</Expandable>
+
+## Configuration
+
+<Expandable title="Do plugins need individual configuration?" default-open="false">
+  Most plugins work out of the box after migration. Some plugins have optional configuration:
+
+  - **SSO** — requires IdP connection details (SAML metadata, OAuth client credentials)
+  - **Notifications** — external channels (Slack/Teams/Discord) need webhook URLs
+  - **GraphQL** — per-org settings for playground, introspection, rate limits
+  - **Webhooks** — retry strategies are configurable per webhook
+  - **White-Labeling** — themes and branding are configured through the admin UI
+
+  All configuration is done via the admin UI or API — no `.env` changes needed beyond the license key.
+</Expandable>
+
+<Expandable title="Where do plugin settings appear in the admin UI?" default-open="false">
+  Pro plugins add menu items to the Studio sidebar in these sections:
+
+  - **Tools** — Workflows, Tasks, Scheduling, Releases, Content Locks, Import, Export, API Explorer, Real-time
+  - **Settings** — Content Permissions, Role Editor, Audit Log, Notifications, Preview Links, SSO, White-Labeling
+</Expandable>
+
+<Expandable title="How do I update plugins?" default-open="false">
+  **Docker**: Pull the latest Pro image and restart:
+  ```bash
+  docker compose pull
+  docker compose up -d
+  ```
+
+  **Manual**: Update npm packages and apply any new migrations:
+  ```bash
+  npm update @roadbeat-pro/workflows --prefix plugins/pro-workflows
+  psql -U postgres -d roadbeat_studio -f plugins/pro-workflows/migrations/002_new_migration.sql
+  ```
+
+  Always check the [Changelog](/changelog) for migration notes before updating.
+</Expandable>
+
+## Editor Extensions
+
+<Expandable title="What are editor sidebar panels?" default-open="false">
+  Some plugins add **sidebar panels** to the content editor. These appear as additional tabs in the editor's right sidebar:
+
+  - **Workflow** panel — shows current workflow state and transition buttons
+  - **Scheduling** panel — schedule publish/unpublish directly from the editor
+  - **Lock** panel — shows lock status, auto-acquires lock on edit
+  - **Preview** panel — generate shareable preview links for the current content
+
+  These panels are loaded automatically when the corresponding plugin is active.
+</Expandable>
+
+<Expandable title="What is the publish guard?" default-open="false">
+  The **Workflows** plugin registers a `content.beforePublish` event handler that checks if the content has been approved in the workflow. If the content hasn't completed the required approval stages, the publish action is blocked with a `403 Forbidden` error explaining that workflow approval is required.
+
+  This ensures content goes through the proper review process before going live.
+</Expandable>

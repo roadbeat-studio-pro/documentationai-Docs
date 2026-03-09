@@ -1,0 +1,124 @@
+---
+title: Content Scheduling
+description: Schedule content publish/unpublish/archive at specific times with releases and calendar view.
+---
+
+## Overview
+
+The **Content Scheduling** plugin lets you schedule content to be published, unpublished, or archived at specific future times. Group related content into **releases** for coordinated publishing, and view all scheduled actions on a **calendar**.
+
+## Key Features
+
+- **Scheduled actions** — publish, unpublish, or archive content at a specific date/time
+- **Timezone-aware** — all schedules support IANA timezone identifiers
+- **Bulk scheduling** — schedule multiple content items at once
+- **Releases** — group content items for coordinated, ordered publishing
+- **Calendar view** — visual overview of all scheduled actions in a date range
+- **Background processor** — polls every 30 seconds for due actions
+- **Auto-cleanup** — cancels pending actions when content is deleted
+
+## For Admins: Configuration
+
+### Migration
+
+```bash
+psql -U postgres -d roadbeat_studio -f plugins/pro-scheduling/migrations/001_create_scheduling_tables.sql
+```
+
+Tables created: `pro_scheduled_actions`, `pro_releases`, `pro_release_items`
+
+No additional configuration is needed. The background processor starts automatically when the plugin loads and polls for due actions every 30 seconds.
+
+## For Editors: Scheduling Content
+
+### Scheduling a Publish
+
+<Tabs>
+  <Tab title="Editor Sidebar" icon="edit">
+    1. Open a content item in the editor
+    2. In the **Scheduling** sidebar panel, click **Schedule Publish**
+    3. Pick a date, time, and timezone
+    4. The content will be published automatically at the scheduled time
+  </Tab>
+  <Tab title="API" icon="code">
+    ```bash
+    POST /api/v1/pro/scheduling/content/:contentId/publish
+    {
+      "scheduledAt": "2026-03-20T18:00:00Z",
+      "timezone": "Europe/Berlin"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Scheduling Unpublish or Archive
+
+Use the same pattern for unpublishing or archiving:
+
+```bash
+# Schedule unpublish
+POST /api/v1/pro/scheduling/content/:contentId/unpublish
+{ "scheduledAt": "2026-04-01T00:00:00Z", "timezone": "UTC" }
+
+# Schedule archive
+POST /api/v1/pro/scheduling/content/:contentId/archive
+{ "scheduledAt": "2026-06-01T00:00:00Z", "timezone": "UTC" }
+```
+
+### Canceling a Scheduled Action
+
+```bash
+DELETE /api/v1/pro/scheduling/actions/:actionId
+```
+
+### Bulk Scheduling
+
+Schedule multiple items at once:
+
+```bash
+POST /api/v1/pro/scheduling/bulk
+{
+  "contentIds": ["uuid-1", "uuid-2", "uuid-3"],
+  "action": "publish",
+  "scheduledAt": "2026-03-20T18:00:00Z",
+  "timezone": "Europe/Berlin"
+}
+```
+
+## Releases
+
+Releases let you bundle multiple content items for coordinated publishing. Each item in a release has a sort order, so you can control the execution sequence.
+
+### Creating a Release
+
+```bash
+POST /api/v1/pro/releases
+{
+  "name": "March Product Launch",
+  "description": "All content for the March 2026 product launch",
+  "items": [
+    { "contentId": "uuid-1", "action": "publish", "sortOrder": 0 },
+    { "contentId": "uuid-2", "action": "publish", "sortOrder": 1 },
+    { "contentId": "uuid-3", "action": "unpublish", "sortOrder": 2 }
+  ]
+}
+```
+
+### Publishing a Release
+
+- **Immediate**: `POST /api/v1/pro/releases/:id/publish` — executes all items in sort order immediately
+- **Scheduled**: `POST /api/v1/pro/releases/:id/schedule` — schedule for a future date
+
+### Calendar View
+
+View all scheduled actions in a date range:
+
+```bash
+GET /api/v1/pro/scheduling/calendar?startDate=2026-03-01T00:00:00Z&endDate=2026-03-31T23:59:59Z
+```
+
+Navigate to **Scheduling** in the sidebar to access the visual calendar in the admin UI.
+
+## API Reference
+
+All scheduling endpoints are in the [Studio API Reference](https://docs.studio.roadbeat.dev/api-reference/overview) under the `pro-scheduling` tag.
