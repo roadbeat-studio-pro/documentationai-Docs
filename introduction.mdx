@@ -59,14 +59,7 @@ description: roadbeat Studio Pro extends the open-source Studio CE with 20 profe
 
 ## How It Works
 
-```
-Studio CE  ──defines──▶  plugin-sdk  ──implements──▶  Pro Plugins
-    ▲                                                      │
-    │                    loaded at runtime                  │
-    └──────────────────────────────────────────────────────┘
-
-License Key  ──validates──▶  Studio CE
-```
+Studio CE ships a **plugin-sdk** that defines extension points — controllers, event handlers, editor panels, and admin routes. Each Pro plugin implements this SDK and is loaded at runtime into the CE application. A signed **license key** (Ed25519 JWT) controls which plugins are activated.
 
 <Steps>
   <Step title="Set license key" icon="key">
