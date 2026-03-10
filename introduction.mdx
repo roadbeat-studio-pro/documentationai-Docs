@@ -59,12 +59,13 @@ description: roadbeat Studio Pro extends the open-source Studio CE with 20 profe
 
 ## How It Works
 
-```mermaid
-graph LR
-    CE[Studio CE] -->|defines| SDK[plugin-sdk]
-    SDK -->|implements| Pro[Pro Plugins]
-    Pro -->|loaded at runtime| CE
-    License[License Key] -->|validates| CE
+```
+Studio CE  ──defines──▶  plugin-sdk  ──implements──▶  Pro Plugins
+    ▲                                                      │
+    │                    loaded at runtime                  │
+    └──────────────────────────────────────────────────────┘
+
+License Key  ──validates──▶  Studio CE
 ```
 
 <Steps>
