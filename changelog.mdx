@@ -3,6 +3,21 @@ title: Changelog
 description: Release notes and updates for roadbeat Studio Pro plugins.
 ---
 
+<Update label="2026-03-28" description="v0.4.0" tags={["feature"]}>
+## What changed
+- **pro-saved-views** v0.1.0 — new plugin for persisting content list filter/sort/view combinations per user
+  - Save, recall, edit, duplicate, and delete named views
+  - Share views with the organization or keep them private
+  - Pin favorite views for quick-access bar
+  - Drag-and-drop reorder for pinned views
+  - Usage tracking (count and last-used timestamp)
+  - Icon and color customization per view
+  - Stores view mode, sort, page size, content type, status, locale, and search query
+  - Angular Elements frontend (Web Component) served via `PluginAssetsController`
+  - Database table: `pro_saved_views`, migration: `001_create_saved_views.sql`
+  - Tier: Starter, required permission: `editor`
+</Update>
+
 <Update label="2026-03-09" description="v0.3.0" tags={["feature"]}>
 ## What changed
 - **pro-notifications** v0.3.0 — external channel integrations (Slack, Teams, Discord, generic webhook), per-user preferences with digest and DND, notification analytics, housekeeping

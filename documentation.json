@@ -67,6 +67,11 @@
             "icon": "wrench",
             "pages": [
               {
+                "title": "Saved Views",
+                "path": "plugins/saved-views",
+                "icon": "bookmark"
+              },
+              {
                 "title": "Content Import",
                 "path": "plugins/import",
                 "icon": "upload"

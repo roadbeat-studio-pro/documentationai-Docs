@@ -1,0 +1,139 @@
+---
+title: Saved Views
+description: Persist and manage content list filter, sort, and view mode combinations for quick access.
+---
+
+## Overview
+
+The **Saved Views** plugin lets editors persist their most-used content list configurations — filters, sort order, view mode, and search queries — as named views that can be recalled instantly. Views can be shared with the organization or kept private.
+
+## Key Features
+
+- **Persist filter combinations** — save any content list state (content type, status, locale, sort, search, view mode, page size) as a named view
+- **Quick recall** — switch between saved views with a single click
+- **Shared views** — share useful views with all organization members
+- **Pin favorites** — pin frequently used views to the quick-access bar
+- **Drag-and-drop reorder** — reorder pinned views via drag-and-drop
+- **Usage tracking** — views track usage count and last-used timestamp
+- **Duplicate views** — clone an existing view as a starting point for a new one
+- **Icon and color customization** — assign a custom icon and color to each view for quick identification
+
+## For Admins: Setup
+
+### Migration
+
+Apply the database migration to create the `pro_saved_views` table:
+
+```bash
+psql -U postgres -d roadbeat_studio -f plugins/pro-saved-views/migrations/001_create_saved_views.sql
+```
+
+### Building the Frontend
+
+The plugin includes an Angular Elements frontend that must be built before the UI is available:
+
+<Steps>
+  <Step title="Install dependencies">
+    Navigate to the plugin's frontend directory and install packages:
+    ```bash
+    cd plugins/pro-saved-views/frontend
+    npm install
+    ```
+  </Step>
+  <Step title="Build the bundle">
+    Build the frontend for development or production:
+    ```bash
+    # Development (with source maps)
+    pnpm run build:dev
+
+    # Production (optimized)
+    pnpm run build
+    ```
+    The compiled bundle is output to `plugins/pro-saved-views/dist/frontend/main.js`.
+  </Step>
+  <Step title="Verify">
+    Confirm the API serves the bundle:
+    ```bash
+    curl -I http://localhost:3000/api/v1/plugins/pro-saved-views/ui/main.js
+    # Expected: HTTP 200, Content-Type: application/javascript
+    ```
+  </Step>
+</Steps>
+
+<Callout kind="info">
+  The Studio API serves plugin frontend bundles from `PLUGINS_DIR/{pluginId}/dist/frontend/` via the `PluginAssetsController`. No API restart is needed after building — files are read from disk on each request.
+</Callout>
+
+## For Editors: Using Saved Views
+
+### Creating a View
+
+<Steps>
+  <Step title="Configure the content list">
+    Set up your desired filters, sort order, view mode, and search query in the content list.
+  </Step>
+  <Step title="Open Saved Views">
+    Navigate to **Pro → Saved Views** in the sidebar.
+  </Step>
+  <Step title="Create a new view">
+    Click **+ New View** and fill in:
+    - **Name** — a descriptive name (e.g., "Published Events", "Draft Articles")
+    - **Description** — optional notes about the view's purpose
+    - **View Mode** — table, list, grid, masonry, calendar, map, or globe
+    - **Sort By / Sort Order** — choose the field and direction
+    - **Page Size** — 25, 50, or 100 items per page
+    - **Filters** — content type, status, locale, and search query
+    - **Icon and Color** — visual customization for quick identification
+    - **Shared** — toggle to make the view available to all organization members
+  </Step>
+</Steps>
+
+### Managing Views
+
+From the Saved Views page you can:
+
+- **Apply** — click a view card to load its configuration in the content list
+- **Edit** — modify any view's settings
+- **Duplicate** — clone a view as a starting point
+- **Pin/Unpin** — pin views to the quick-access bar for one-click access
+- **Delete** — remove views you no longer need
+
+### View Configuration
+
+Each saved view stores the following settings:
+
+| Setting | Description |
+|---------|-------------|
+| **View Mode** | Table, List, Grid, Compact Masonry, Large Masonry, Calendar, Map, Globe |
+| **Sort By** | Updated, Created, Published, Slug, Title, Status |
+| **Sort Order** | Ascending or Descending |
+| **Page Size** | 25, 50, or 100 |
+| **Content Type** | Filter to a specific content type |
+| **Status** | Filter by publish status |
+| **Locale** | Filter by content locale |
+| **Search** | Saved search query |
+
+## Plugin Details
+
+| Property | Value |
+|----------|-------|
+| **Plugin ID** | `pro-saved-views` |
+| **Version** | 0.1.0 |
+| **Tier** | Starter |
+| **Required CE Version** | ≥ 0.1.0 |
+| **Database Table** | `pro_saved_views` |
+| **Menu Location** | Content Tools → Saved Views |
+| **Required Permission** | `editor` |
+
+## API Reference
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/v1/pro/saved-views` | List all saved views (own + shared) |
+| `POST /api/v1/pro/saved-views` | Create a new saved view |
+| `GET /api/v1/pro/saved-views/:id` | Get a saved view by ID |
+| `PUT /api/v1/pro/saved-views/:id` | Update a saved view |
+| `DELETE /api/v1/pro/saved-views/:id` | Delete a saved view |
+| `POST /api/v1/pro/saved-views/:id/duplicate` | Duplicate a saved view |
+| `PATCH /api/v1/pro/saved-views/:id/pin` | Pin or unpin a saved view |
+| `POST /api/v1/pro/saved-views/reorder` | Reorder pinned views |
