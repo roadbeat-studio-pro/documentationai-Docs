@@ -3,15 +3,6 @@ title: Changelog
 description: Release notes and updates for roadbeat Studio Pro plugins.
 ---
 
-<Update label="2026-04-24" description="v0.4.1" tags={["bugfix"]}>
-## What changed
-- **pro-notifications** — fixed missing database tables after fresh Studio setup. The plugin migration `001_create_notification_tables.sql` must be applied manually after Prisma migrations to create the `pro_notifications`, `pro_notification_channels`, and `pro_notification_preferences` tables. Without these tables, `GET /api/v1/pro/notifications/unread-count` returns a 500 error with `Relation «pro_notifications» existiert nicht`.
-
-<Callout kind="tip">
-  Pro plugin migrations live in each plugin's `migrations/` directory and are separate from Studio's Prisma migrations. After setting up a new database, run both Prisma migrations **and** all Pro plugin SQL files.
-</Callout>
-</Update>
-
 <Update label="2026-03-28" description="v0.4.0" tags={["feature"]}>
 ## What changed
 - **pro-saved-views** v0.1.0 — new plugin for persisting content list filter/sort/view combinations per user
