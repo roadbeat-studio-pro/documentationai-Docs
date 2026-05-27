@@ -137,6 +137,12 @@
                 "title": "Notifications",
                 "path": "plugins/notifications",
                 "icon": "bell"
+              },
+              {
+                "title": "ActivityPub Federation",
+                "path": "plugins/activitypub",
+                "icon": "globe",
+                "badge": "New"
               }
             ]
           },
