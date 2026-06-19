@@ -37,6 +37,22 @@
             ]
           },
           {
+            "group": "AI Assistant",
+            "icon": "sparkles",
+            "pages": [
+              {
+                "title": "AI Provider Gateway",
+                "path": "plugins/ai",
+                "icon": "sparkles"
+              },
+              {
+                "title": "AI Privacy & Governance",
+                "path": "plugins/ai-governance",
+                "icon": "shield"
+              }
+            ]
+          },
+          {
             "group": "Workflows & Publishing",
             "icon": "git-branch",
             "pages": [

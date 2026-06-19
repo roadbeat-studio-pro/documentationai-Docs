@@ -3,6 +3,21 @@ title: Changelog
 description: Release notes and updates for roadbeat Studio Pro plugins.
 ---
 
+<Update label="2026-06-19" description="pro-ai" tags={["feature"]}>
+## AI Assistant & Provider Gateway
+
+The **`pro-ai`** plugin documentation is now published: one governed gateway for local + cloud AI across Studio.
+
+- **Provider gateway** — Augmentor, Ollama, Mistral, Azure OpenAI, OpenAI, Anthropic, Gemini, and any OpenAI-compatible endpoint behind a uniform adapter, with goal-driven routing, health-based fallback, and a per-provider circuit breaker
+- **Capabilities** — chat (with tool-calling), embeddings, translation, an 11-action writing assistant, schema-grounded generation (AJV-validated), vision, transcription, and classification
+- **Privacy & governance** — residency modes, non-EU consent, enforced zero-retention, PII redaction before cloud egress, and an append-only audit log (hashed by default)
+- **Cost control** — org/per-user token & cost budgets, per-user rate limits, license-tier ceilings, and a burn-down dashboard
+- **Licensing** — Team tier; non-EU providers and advanced governance gated to Business (`ai_cloud_providers_enabled`, `ai_advanced_governance`), with `max_ai_tokens_per_day` / `max_ai_cost_per_month` ceilings
+- **Shared backbone** — sibling Pro plugins consume the gateway via `AI_SERVICE`; capabilities are also exposed as MCP tools
+
+New pages: [AI Provider Gateway](/plugins/ai) and [AI Privacy & Governance](/plugins/ai-governance).
+</Update>
+
 <Update label="2026-05-27" description="v0.5.0" tags={["feature"]}>
 ## pro-activitypub (P10)
 
