@@ -1,9 +1,9 @@
 ---
 title: Introduction
-description: roadbeat Studio Pro extends the open-source Studio CE with 20 professional plugins for editorial teams, enterprises, and agencies.
+description: roadbeat Studio Pro extends the open-source Studio CE with 23 professional plugins for editorial teams, enterprises, and agencies.
 ---
 
-**roadbeat Studio Pro** extends the open-source [Studio Community Edition](https://docs.studio.roadbeat.dev) with 20 professional plugins for editorial workflows, advanced security, real-time collaboration, and enterprise integrations.
+**roadbeat Studio Pro** extends the open-source [Studio Community Edition](https://studio-docs.roadbeat.net) with 23 professional plugins for AI-assisted authoring, editorial workflows, advanced security, real-time collaboration, and enterprise integrations.
 
 <Callout kind="info">
   Studio Pro plugins are loaded at runtime into the CE application. They never modify CE code — CE remains fully functional even if the Pro license expires.
@@ -12,6 +12,9 @@ description: roadbeat Studio Pro extends the open-source Studio CE with 20 profe
 ## Plugin Overview
 
 <Columns cols={3}>
+  <Card title="AI Assistant" icon="sparkles" href="/plugins/ai">
+    One governed gateway for local + cloud AI — chat, translation, writing, embeddings, vision, and schema-grounded generation.
+  </Card>
   <Card title="Workflows & Publishing" icon="git-branch" href="/plugins/workflows">
     Editorial approval workflows, content scheduling, locking, and shareable preview links.
   </Card>
@@ -32,10 +35,11 @@ description: roadbeat Studio Pro extends the open-source Studio CE with 20 profe
   </Card>
 </Columns>
 
-## All 20 Plugins
+## All 23 Plugins
 
 | Plugin | Description |
 |--------|-------------|
+| **[AI Provider Gateway](/plugins/ai)** | Governed local + cloud AI: chat, translation, writing assistant, embeddings, vision, schema-grounded generation, [privacy &amp; governance](/plugins/ai-governance) |
 | **[Editorial Workflows](/plugins/workflows)** | Configurable states, transitions, approvals, task assignment, publish guards |
 | **[Content Scheduling](/plugins/scheduling)** | Scheduled publish/unpublish/archive, releases, calendar view |
 | **[Content Locking](/plugins/locking)** | Pessimistic locking with heartbeat, advisory and exclusive modes |
@@ -44,6 +48,7 @@ description: roadbeat Studio Pro extends the open-source Studio CE with 20 profe
 | **[Content Export](/plugins/export)** | CSV/JSON export with templates and transforms |
 | **[Version Comparison](/plugins/versioning)** | Side-by-side diffs with field-level and word-level changes |
 | **[Custom Layouts](/plugins/layouts)** | Layout builder with versioning, import/export, Git sync |
+| **[Saved Views](/plugins/saved-views)** | Save and share filtered content views with custom columns and sorting |
 | **[Advanced Roles](/plugins/advanced-roles)** | Per-content-type permissions, custom roles, role editor |
 | **[SSO Integration](/plugins/sso)** | SAML 2.0, OAuth 2.0/OIDC, SCIM 2.0 user provisioning |
 | **[Audit Logging](/plugins/audit)** | Immutable audit trail, compliance reports, retention policies |
@@ -51,6 +56,7 @@ description: roadbeat Studio Pro extends the open-source Studio CE with 20 profe
 | **[Real-time](/plugins/realtime)** | WebSocket presence, cursor sharing, live event broadcasting |
 | **[Advanced Webhooks](/plugins/webhooks)** | Retry with backoff, dead letter queue, incoming webhooks |
 | **[Notifications](/plugins/notifications)** | In-app + Slack/Teams/Discord, preferences, digest support |
+| **[ActivityPub Federation](/plugins/activitypub)** | Multi-actor publishing, scheduled federation, analytics, content filters |
 | **[Environments](/plugins/environments)** | Dev/staging/prod with content promotion, sync, cloning |
 | **[Bulk Asset Ops](/plugins/bulk-ops)** | Bulk move, delete, tag, and download assets |
 | **[Video Processing](/plugins/media)** | Transcoding jobs, thumbnail generation, profiles |
@@ -82,7 +88,7 @@ Studio CE ships a **plugin-sdk** that defines extension points — controllers, 
   <Card title="Licensing" icon="key" href="/licensing">
     Understand license tokens, validation, grace periods, and limits.
   </Card>
-  <Card title="Studio CE Docs" icon="book" href="https://docs.studio.roadbeat.dev" target="_blank">
+  <Card title="Studio CE Docs" icon="book" href="https://studio-docs.roadbeat.net" target="_blank">
     Full CE documentation including API reference, editor guides, and deployment.
   </Card>
 </Columns>
