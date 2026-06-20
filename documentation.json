@@ -67,6 +67,18 @@
                 "path": "plugins/integrations-governance",
                 "icon": "shield",
                 "badge": "New"
+              },
+              {
+                "title": "Connector Authoring",
+                "path": "plugins/integrations-connectors",
+                "icon": "plug",
+                "badge": "New"
+              },
+              {
+                "title": "Flow Recipes",
+                "path": "plugins/integrations-recipes",
+                "icon": "book",
+                "badge": "New"
               }
             ]
           },

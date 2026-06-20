@@ -1,0 +1,142 @@
+---
+title: Connector Authoring
+description: Add connectors to the Integration Hub catalog — import any OpenAPI 3.x spec, register an MCP server, use the generic HTTP/SQL/S3/email primitives, and vault a Connection with OAuth, an API key, or Basic auth.
+---
+
+## Overview
+
+You rarely hand-write a connector. The Hub reaches thousands of endpoints by **compounding sources** — native engine pieces, community pieces, an OpenAPI importer, MCP servers, and generic primitives — and every catalog entry carries a **maturity badge** and a **data-residency label** so reviewers can see at a glance what they're enabling.
+
+A **Connector** is the typed integration (its actions + triggers); a **Connection** is an authenticated, vaulted instance of it for your organization. Authoring a connector and creating a Connection are two separate steps.
+
+| Source | Maturity badge | How to add it |
+|---|---|---|
+| Flow-engine native nodes | `native` | Seeded automatically from the engine |
+| Community pieces | `community-reviewed` | Installed from the security-reviewed allowlist |
+| Any OpenAPI 3.x API | `openapi-generated` | [Import a spec](#import-an-openapi-spec) |
+| Any MCP server | `mcp` | [Register the server](#register-an-mcp-server) |
+| HTTP, webhook, SQL, FTP, S3, email, SSH | `generic` | Built in — just create a Connection |
+
+<Callout kind="info">
+  Connector authoring (OpenAPI / MCP import, generic primitives) is on the **Team** tier. The connectors you author become tools the **Studio Agent** can use once a Connection exists — but the Agent itself is **Business** and requires [`pro-ai`](/plugins/ai).
+</Callout>
+
+## Import an OpenAPI spec
+
+Point the importer at any OpenAPI 3.x document and the Hub derives a typed connector — **one action per `(path, method)`**, with input/output schemas and the auth type inferred from `securitySchemes`.
+
+<Steps>
+  <Step title="Open the catalog" icon="plug">
+    Go to **Connectors → Import OpenAPI** and paste the spec as JSON (convert YAML to JSON first).
+  </Step>
+  <Step title="Set the data residency" icon="shield">
+    Choose where this API stores data. It defaults to **Unknown**, which means non-EU egress to it will require explicit consent until you confirm a residency.
+  </Step>
+  <Step title="Review the generated actions" icon="list">
+    Each operation becomes an action (named from its `operationId`), with the request body + parameters as the input schema and the 2xx response as the output schema.
+  </Step>
+</Steps>
+
+```bash
+curl -X POST https://your-studio/api/v1/pro/integrations/connectors/import-openapi \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{ "name": "Acme API", "dataResidency": "eu", "spec": { "openapi": "3.0.0", "info": { "title": "Acme", "version": "1.0" }, "paths": { "...": {} } } }'
+```
+
+| `securitySchemes` type | Becomes `auth_type` |
+|---|---|
+| `oauth2` | `oauth2` |
+| `apiKey` | `api_key` |
+| `http` (basic) | `basic` |
+| `http` (bearer) | `api_key` |
+
+The connector is created **org-scoped** with `kind: "openapi"` and shows the `openapi-generated` maturity badge.
+
+## Register an MCP server
+
+Register any [MCP](https://modelcontextprotocol.io/) server and its **tools become connector actions**. The Hub runs `initialize` + `tools/list` over HTTP JSON-RPC and maps each tool to an action.
+
+<Steps>
+  <Step title="Register the server" icon="server">
+    Go to **Connectors → Register MCP server**, enter the server URL, and (optionally) a bearer token used **for discovery only**.
+  </Step>
+  <Step title="Tools are mapped" icon="wand">
+    Each MCP tool becomes an action with its input schema preserved. The connector is created with `kind: "mcp"`.
+  </Step>
+</Steps>
+
+```bash
+curl -X POST https://your-studio/api/v1/pro/integrations/connectors/mcp \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{ "url": "https://mcp.example.com/rpc", "name": "My MCP server", "dataResidency": "self_hosted" }'
+```
+
+<Callout kind="tip">
+  When your organization runs the standalone roadbeat **MCP Gateway**, the Hub can delegate to it as the single source of tool catalog + consent. v1 of the in-Hub client speaks the remote **HTTP** transport; stdio/SSE-only servers are reached through the Gateway.
+</Callout>
+
+## Generic primitives
+
+When no maintained connector exists, build on the generic primitives — they cover the long tail without any authoring:
+
+| Primitive | Use for |
+|---|---|
+| **HTTP request** | Any REST/JSON endpoint |
+| **Outgoing webhook** | Fire-and-forget POSTs (generalises CE webhooks) |
+| **Incoming webhook** | A trigger at `POST /hooks-pro/:slug`, HMAC-verified |
+| **SQL** | Read/write an external database |
+| **FTP / S3** | File transfer and object storage |
+| **Email (SMTP/IMAP)** | Send and receive mail |
+| **SSH / exec** | Sandboxed remote commands |
+
+Each is egress-governed exactly like a vendor connector: the destination host is checked against the [egress policy](/plugins/integrations-governance#egress-policy), and the SSRF guard blocks loopback / link-local / metadata / private targets regardless of policy.
+
+## Create a Connection
+
+A connector is inert until you attach an authenticated **Connection**. Click **Connect** on any catalog card.
+
+<Tabs>
+  <Tab title="API key" icon="key">
+    Paste the key. It is encrypted into the credential vault immediately; only a masked hint (`sk-…abcd`) is ever shown again.
+  </Tab>
+  <Tab title="Basic auth" icon="user">
+    Provide a username and password; both are vaulted as a single secret.
+  </Tab>
+  <Tab title="OAuth2" icon="shield">
+    Configure the OAuth app (client id + secret + authorize/token URLs) once, then run the **authorization-code + PKCE** flow. The Hub vaults the token bundle and **auto-refreshes** it before expiry; a connection whose refresh fails marks itself `expired` and asks for re-authentication.
+  </Tab>
+</Tabs>
+
+<Callout kind="danger">
+  Secrets are **never** returned to the frontend, stored in the flow engine, or sent to the model. At run time the engine leases a short-lived, single-use credential through the vault callback. Set `INTEGRATIONS_KEK` in production — see [Governance → Credential vault](/plugins/integrations-governance#credential-vault).
+</Callout>
+
+## Authoring checklist
+
+<Steps>
+  <Step title="Confirm data residency" icon="shield">
+    Set a residency on imported connectors before first use. **Unknown** or **non-EU** egress requires `pii_egress` consent.
+  </Step>
+  <Step title="Scope the action surface" icon="filter">
+    Import only the operations you need; fewer actions is a smaller egress surface and a clearer Agent tool registry.
+  </Step>
+  <Step title="Redact sensitive fields" icon="eye-off">
+    Add dot-paths to `redact_fields` in the egress policy so PII is stripped before any external call.
+  </Step>
+  <Step title="Test with a flow" icon="workflow">
+    Wire the connector into a one-step flow and run it — the [Runs](/plugins/integrations) page shows the governed call with hashed payloads.
+  </Step>
+</Steps>
+
+## Next steps
+
+<Columns cols={2}>
+  <Card title="Flow Recipes" icon="book" href="/plugins/integrations-recipes">
+    Five ready-to-adapt flows that put these connectors to work.
+  </Card>
+  <Card title="Governance & Vault" icon="shield" href="/plugins/integrations-governance">
+    How the vault, egress policy, consent, and audit govern every connector call.
+  </Card>
+</Columns>

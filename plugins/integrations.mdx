@@ -67,6 +67,10 @@ A **Connector** is a typed integration to an external system; a **Connection** i
 
 Create a Connection with **OAuth2** (authorization-code + PKCE), **API key**, or **Basic** auth. Secrets go straight to the vault; only a masked hint (`sk-…abcd`) is ever shown. OAuth connections auto-refresh before expiry and mark themselves `expired` when re-authentication is needed.
 
+<Card title="Connector Authoring" icon="plug" href="/plugins/integrations-connectors" horizontal={true} cta="Add a connector">
+  Import any OpenAPI 3.x spec, register an MCP server, or use the generic HTTP / SQL / S3 / email primitives — and vault a Connection.
+</Card>
+
 ## Pillar 2 — Flows
 
 A **Flow** is a versioned automation graph that follows the **Input → Check → Decide → Act → Report** shape, generalised to a DAG of typed steps:
@@ -104,6 +108,10 @@ A phase-laned visual canvas draws SVG connectors between step cards; a step insp
 ### Run lifecycle
 
 Triggers enqueue a run; a restart-safe worker drains the queue and executes each step. Per-step records persist **sha256 input/output hashes** (never raw PII) plus an egress flag and duration. Egress steps pass through the governance plane; destructive/egress steps can pause as `waiting_confirmation` until a human approves. Failed runs are the dead-letter — an admin can **retry** (with the spec-67 backoff `[1000, 5000, 30000]`), **cancel**, or **confirm** them. The full timeline is browsable on the **Runs** page.
+
+<Card title="Flow Recipes" icon="book" href="/plugins/integrations-recipes" horizontal={true} cta="See the recipes">
+  Five ready-to-adapt flows: news ingestion, CRM → Profile sync, an editorial publish guard, an agent-driven campaign, and a scheduled analytics digest.
+</Card>
 
 ## Pillar 3 — Studio Agent
 

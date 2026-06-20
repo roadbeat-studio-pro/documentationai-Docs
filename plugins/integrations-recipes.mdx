@@ -1,0 +1,175 @@
+---
+title: Flow Recipes
+description: Five ready-to-adapt Integration Hub flows — news ingestion, CRM sync, an editorial publish guard, an agent-driven campaign, and a scheduled analytics digest.
+---
+
+## Overview
+
+These recipes show the Integration Hub patterns end-to-end. Each follows the **Input → Check → Decide → Act → Report** shape and is built from the [step types](/plugins/integrations#pillar-2-flows) you already have. Adapt the connector keys, content types, and connection ids to your instance.
+
+<Callout kind="info">
+  Recipes that call `ai` steps or use the **Studio Agent** require the [`pro-ai`](/plugins/ai) plugin. Every external (egress) step is governed — the first call to a connector and anything destructive pauses for consent. See [Governance](/plugins/integrations-governance).
+</Callout>
+
+A flow is a portable `FlowDefinition`: typed `steps`, `edges` (with optional `when` conditions), and `inputs`. You can paste JSON straight into the Flow Builder's **Edit JSON** view, or describe the flow in the **✨ Describe** box and refine the result on the canvas.
+
+## 1. News ingestion + enrichment + distribution
+
+Poll a feed, skip anything you've already published, classify and translate it with AI, create a schema-valid News draft, publish it, and announce it in Slack.
+
+<Steps>
+  <Step title="Input" icon="rss">
+    A **schedule** trigger (or a connector poll) fetches new items from an RSS/connector source.
+  </Step>
+  <Step title="Check" icon="filter">
+    Dedup against existing slugs — a `condition` step skips items already processed.
+  </Step>
+  <Step title="Decide" icon="brain">
+    An `ai` step classifies topic + language so routing and translation can branch.
+  </Step>
+  <Step title="Act" icon="send">
+    Create a schema-validated **News** draft (`studio.create_draft`), AI-translate it to EN, publish it, push the teaser to a Discovery Node, and mirror it to a Content Pod.
+  </Step>
+  <Step title="Report" icon="message-square">
+    Post a summary to your `#newsroom` Slack channel.
+  </Step>
+</Steps>
+
+```json
+{
+  "schemaVersion": "1.0",
+  "name": "News ingestion + enrichment",
+  "inputs": [{ "name": "item", "type": "object", "required": true }],
+  "steps": [
+    { "key": "dedup", "type": "condition", "phase": "check",
+      "expr": { "left": "{{inputs.item.guid}}", "op": "not_in", "right": "{{state.publishedGuids}}" } },
+    { "key": "classify", "type": "ai", "phase": "decide", "task": "classify",
+      "prompt": "Classify topic and language of: {{inputs.item.title}}" },
+    { "key": "draft", "type": "studio", "phase": "act", "op": "create_draft",
+      "params": { "contentType": "news", "data": { "title": "{{inputs.item.title}}", "body": "{{inputs.item.content}}" } } },
+    { "key": "translate", "type": "ai", "phase": "act", "task": "translate",
+      "prompt": "Translate the draft to en" },
+    { "key": "publish", "type": "studio", "phase": "act", "op": "publish",
+      "params": { "id": "{{steps.draft.output.id}}" } },
+    { "key": "slack", "type": "connector_action", "phase": "report",
+      "connector": "slack", "connectionId": "<your-slack-connection>", "action": "post_message",
+      "params": { "channel": "#newsroom", "text": "Published: {{steps.draft.output.title}}" } }
+  ],
+  "edges": [
+    { "from": "dedup", "to": "classify", "when": { "left": "{{steps.dedup.output}}", "op": "eq", "right": true } },
+    { "from": "classify", "to": "draft" },
+    { "from": "draft", "to": "translate" },
+    { "from": "translate", "to": "publish" },
+    { "from": "publish", "to": "slack" }
+  ]
+}
+```
+
+<Callout kind="tip">
+  Content writes go through the schema-validating `studio` seam, so an AI-drafted News item can never violate your content-type contract — invalid drafts are rejected before they persist.
+</Callout>
+
+## 2. CRM → Profile content sync
+
+Turn a new CRM company into a roadbeat **Profile**, then write the published URL back to the CRM.
+
+| Phase | Step |
+|---|---|
+| **Input** | A `connector_event` trigger fires on HubSpot "new company" |
+| **Check** | Validate the payload against the Profile schema (`condition` / `transform`) |
+| **Act** | Upsert a Profile content item (`studio.create_draft` / `update`) |
+| **Report** | Write the roadbeat content URL back to the HubSpot record (`connector_action`) |
+
+<Callout kind="alert">
+  The write-back step is **egress** to a non-roadbeat system. The first time this flow runs against a connection, it pauses for consent; thereafter it runs within the granted consent window. Mark any PII fields you don't want to leave the EU as `redact_fields` in the [egress policy](/plugins/integrations-governance#egress-policy).
+</Callout>
+
+## 3. Editorial publish guard
+
+Block a publish when content fails an automated quality check — the canonical use of the **preventable** `content.beforePublish` event.
+
+<Steps>
+  <Step title="Register the flow as a publish guard" icon="shield">
+    Add a **content event** trigger whose event is `content.beforePublish`, scoped to the content types you want to guard.
+  </Step>
+  <Step title="Run your checks" icon="search-check">
+    Call an SEO connector and a fact-check connector; combine their scores in a `transform` step.
+  </Step>
+  <Step title="Decide to block" icon="ban">
+    A `condition` sets `block: true` with a reason when the score is below threshold.
+  </Step>
+</Steps>
+
+```json
+{
+  "schemaVersion": "1.0",
+  "name": "SEO publish guard",
+  "inputs": [{ "name": "content", "type": "object", "required": true }],
+  "steps": [
+    { "key": "seo", "type": "connector_action", "phase": "check",
+      "connector": "seo-checker", "connectionId": "<conn>", "action": "score",
+      "params": { "html": "{{inputs.content.body}}" } },
+    { "key": "gate", "type": "condition", "phase": "decide",
+      "expr": { "left": "{{steps.seo.output.score}}", "op": "lt", "right": 70 } },
+    { "key": "block", "type": "transform", "phase": "report", "engine": "template",
+      "expression": "{ \"block\": true, \"reason\": \"SEO score too low ({{steps.seo.output.score}})\" }" }
+  ],
+  "edges": [
+    { "from": "seo", "to": "gate" },
+    { "from": "gate", "to": "block", "when": { "left": "{{steps.gate.output}}", "op": "eq", "right": true } }
+  ]
+}
+```
+
+When the flow's `output.block` is `true`, the Hub calls `event.prevent(reason)` and the publish is refused with that reason. Guards **fail open** — a guard that errors is logged but never wedges publishing.
+
+## 4. Agent-driven campaign (natural language)
+
+The Juma-style "describe it and it runs" experience, with a human approving egress once.
+
+> *"Take the 5 newest event drafts, translate them to FR and ES, schedule them for next Monday 09:00, and post a summary to Slack."*
+
+<Steps>
+  <Step title="Ask the Agent" icon="bot">
+    Type the goal into the **Studio Agent**. It builds a plan: 5 × (translate → schedule) plus one Slack summary.
+  </Step>
+  <Step title="Review the plan" icon="list-checks">
+    The Agent shows the ordered tool calls before running anything.
+  </Step>
+  <Step title="Approve egress once" icon="check">
+    The Slack post is an egress action, so it surfaces a **confirm card**. Approve it once; safe/local steps (translate, schedule) run inline.
+  </Step>
+  <Step title="Get a report" icon="file-text">
+    The Agent returns a natural-language summary plus a structured action log with links to the scheduled items.
+  </Step>
+</Steps>
+
+<Callout kind="info">
+  Regardless of Assist vs Auto mode, **egress and destructive tools always confirm**. Content writes are schema-validated, and the whole run is audited. This recipe requires `pro-ai`.
+</Callout>
+
+## 5. Scheduled analytics digest
+
+A daily summary with no human in the loop — all steps are internal or read-only.
+
+| Phase | Step |
+|---|---|
+| **Schedule** | A `schedule` trigger at `0 8 * * *` (08:00 UTC) |
+| **Input** | Pull publish stats + Discovery impressions (`connector_action` / `studio.query`) |
+| **Decide** | An `ai` step summarises the numbers into prose |
+| **Report** | Email the digest and append it to a Notion page (two `connector_action` steps) |
+
+<Callout kind="tip">
+  Cron is evaluated in **UTC** in v1. Set the trigger time accordingly, or offset for your newsroom's timezone.
+</Callout>
+
+## Next steps
+
+<Columns cols={2}>
+  <Card title="Connector Authoring" icon="plug" href="/plugins/integrations-connectors">
+    Import any OpenAPI or MCP server, or use the generic HTTP/SQL/S3 primitives, to add the connectors these recipes call.
+  </Card>
+  <Card title="Integration Hub" icon="workflow" href="/plugins/integrations">
+    The full reference for connectors, the flow model, triggers, runs, and the Studio Agent.
+  </Card>
+</Columns>
