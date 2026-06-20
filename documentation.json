@@ -53,6 +53,24 @@
             ]
           },
           {
+            "group": "Integration Hub",
+            "icon": "workflow",
+            "pages": [
+              {
+                "title": "Connectors, Flows & Agent",
+                "path": "plugins/integrations",
+                "icon": "workflow",
+                "badge": "New"
+              },
+              {
+                "title": "Governance & Vault",
+                "path": "plugins/integrations-governance",
+                "icon": "shield",
+                "badge": "New"
+              }
+            ]
+          },
+          {
             "group": "Workflows & Publishing",
             "icon": "git-branch",
             "pages": [

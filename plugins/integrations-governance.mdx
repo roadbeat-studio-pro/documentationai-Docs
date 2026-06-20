@@ -1,0 +1,123 @@
+---
+title: Integration Hub Governance
+description: The credential vault, egress policy, consent ledger, human-in-the-loop confirmation, append-only audit, rate/quota limits, and zero-leakage multi-tenancy behind every connector, flow, and agent action.
+---
+
+## Overview
+
+The Integration Hub is roadbeat's widest **new egress surface**, so it carries the strictest controls. These are **product requirements, not options**: every connector, flow step, and autonomous agent action passes through the same governance plane before a single byte leaves your instance.
+
+<Callout kind="info">
+  The runtime safety controls on this page — vault, egress enforcement, consent at execution time, HITL, audit, and tenancy — apply on **every** tier. The **admin surfaces** for editing the egress policy and exporting the audit log are gated to **Business** (`integrations_advanced_governance`).
+</Callout>
+
+## Credential vault
+
+The single most security-sensitive component.
+
+- **Encrypted at rest** with a per-organization **data-encryption key (DEK)**, itself wrapped by a **key-encryption key (KEK)** from the environment (`INTEGRATIONS_KEK`). Algorithm: **AES-256-GCM**.
+- **Never returned to the frontend** — only metadata and a masked hint (`sk-…abcd`).
+- **Never stored in the flow engine** — the engine fetches a short-lived, single-use credential at execution time through the adapter's `resolveCredential()` callback; the engine's own credential store is disabled.
+- **Never exposed to the model** — the Agent sees connector *capabilities*, never secrets. Tool args are sanitised and outbound payloads redacted per policy.
+- **OAuth rotation** — refresh tokens are vaulted and auto-refreshed before expiry; deleting a connection purges its vault entry.
+
+<Callout kind="danger">
+  Set `INTEGRATIONS_KEK` to a strong secret in production. When it is unset the plugin falls back to an **insecure deterministic dev key** and logs a loud warning — never run production without a real KEK.
+</Callout>
+
+## Egress policy
+
+Every external call is authorized by the per-org egress policy before it runs.
+
+| Mode | Behavior |
+|---|---|
+| `allowlist` | Only destinations whose host matches the allowlist are permitted |
+| `blocklist` | Everything is permitted except blocked hosts |
+| `eu_only` | Only EU / self-hosted connectors; non-EU or unknown residency is refused unless `pii_egress` consent exists |
+
+On top of the mode, the engine:
+
+- gates **non-EU / unknown-residency** egress on explicit `pii_egress` consent,
+- strips configured **`redact_fields`** (dot-paths) from the payload **before** the external call, and
+- runs an **always-on SSRF guard** that blocks loopback, link-local, cloud-metadata, and private-range targets regardless of policy.
+
+A denied egress is a **non-retryable** step failure, and the (possibly redacted) payload is what actually gets sent.
+
+## Consent ledger & human-in-the-loop
+
+Consent is recorded per `(user, subject, class, lifetime)` — lifetimes are `once`, `session`, `30d`, or `permanent`.
+
+- **First egress** to a connector and **all destructive steps** require consent.
+- Before any step runs, a **preflight** computes the run's needed consents up front (no partial side effects). If any are missing, the run pauses as **`waiting_confirmation`** with the needed consents recorded.
+- A human resumes it via **Confirm** (`POST /pro/integrations/runs/:id/confirm`), which grants the needed consents (session lifetime, attributed to the confirming user) and re-queues the run — preflight then passes.
+
+<Callout kind="tip">
+  In the Studio Agent, destructive and egress tools **always** surface a confirm card before they run — regardless of Assist vs Auto mode — so the conservative default holds for every effectful action.
+</Callout>
+
+## Publish guard
+
+A Flow can be registered as a **publish guard** using CE's preventable-event mechanism. On `content.beforePublish`, matching guard flows run synchronously; if a guard returns `block: true`, the publish is prevented with the guard's reason.
+
+```typescript
+@OnEvent('content.beforePublish', { priority: 20 })
+async guardPublish(event: ContentBeforePublishEvent): Promise<void> {
+  for (const guard of await this.flowService.getPublishGuards(event.content.contentTypeId, event.content.organizationId)) {
+    const run = await this.flowRunService.runSync(guard.flowId, { content: event.content });
+    if (run.output?.block === true) {
+      event.prevent(run.output.reason ?? 'Blocked by integration flow');
+      return;
+    }
+  }
+}
+```
+
+<Callout kind="info">
+  Publish guards **fail open**: a guard that errors is logged but never wedges publishing.
+</Callout>
+
+## Append-only audit
+
+Every run, action, egress decision, consent change, and connection event is written to `pro_integration_audit` — with input/output **hashes** (not raw PII), target, decision, and latency. The log is append-only and **GDPR-exportable** (optionally scoped to one user).
+
+## Rate & quota limits
+
+Per-org limits bound the Hub's blast radius. The admin-configurable policy lives in `pro_quota_*`; license-tier ceilings layer on top as a hard cap.
+
+| Limit | Where it's enforced | Team default |
+|---|---|---|
+| Runs / minute · runs / day | Admission check at enqueue (interactive paths → HTTP 429) | 120 / min · 5,000 / day |
+| Concurrent runs | The run worker only starts a run when the org is below its cap | 8 |
+| Egress bytes / day | Checked + metered in the executor before each call | 1 GiB |
+| Agent tokens / day | Checked + metered in the agent | 1,000,000 |
+
+**Anomaly detection** watches for exfiltration loops (repeated egress to one host), egress byte spikes, and quota breaches, raising a warning, an `anomaly` audit row, and an `integrations.anomaly` event.
+
+## Multi-tenancy (zero leakage)
+
+Every `pro_*` query is hard-scoped by `organization_id`, the credential vault uses **per-org DEKs** (one org's key compromise cannot read another's), and engine runs are tagged per tenant with an org-bound credential lease. A cross-org leakage regression suite asserts that every tenant-facing read filters by organization.
+
+## Prompt-injection & autonomy safety
+
+For the Studio Agent specifically:
+
+- content and teaser data are tagged untrusted (the planner system prompt forbids treating content as instructions),
+- destructive tools and all egress require per-call confirmation unless pre-authorised,
+- each action carries a nonce and the run de-duplicates to prevent replay, and
+- hard per-session caps bound tool calls, iterations, and egress bytes.
+
+## API Reference
+
+All endpoints live under `/api/v1`.
+
+| Endpoint | Description |
+|---|---|
+| `GET/PUT /pro/integrations/egress-policy` | Read / set the org egress policy (PUT is **Business**) |
+| `GET/POST /pro/integrations/consents` · `DELETE /consents/:id` | List / grant / revoke consents |
+| `GET /pro/integrations/audit` | List audit entries (paginated, filterable) |
+| `GET /pro/integrations/audit/export` | GDPR export (optionally for one user) — **Business** |
+| `GET/PUT /pro/integrations/quota` · `GET /quota/usage` | Read / override quota limits and view today's usage |
+| `GET /pro/integrations/license` | Effective tier features + per-org limits |
+| `GET /pro/integrations/status` | Plugin status / dependency probe |
+
+See the [Integration Hub](/plugins/integrations) for the connector, flow, run, and agent endpoints.

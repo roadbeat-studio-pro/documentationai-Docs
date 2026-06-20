@@ -3,6 +3,25 @@ title: Changelog
 description: Release notes and updates for roadbeat Studio Pro plugins.
 ---
 
+<Update label="2026-06-20" description="pro-integrations" tags={["feature", "security"]}>
+## Integration Hub — Connectors, Flows & Studio Agent
+
+The **`pro-integrations`** plugin documentation is now published: a goal-driven automation platform behind a European, privacy-first governance plane.
+
+- **Connectors** — a governed catalog of external tools: flow-engine native nodes, community pieces, MCP servers, an OpenAPI 3.x importer, and generic primitives (HTTP, webhook in/out, SQL, FTP, S3, email, SSH), each with a maturity badge and data-residency label
+- **Connections + credential vault** — OAuth2 (PKCE), API-key, and Basic auth, encrypted at rest with AES-256-GCM and a per-org data key; secrets are never returned to the frontend, stored in the engine, or sent to the model, and are leased just-in-time per call
+- **Flows** — a portable, engine-agnostic `FlowDefinition` (Input → Check → Decide → Act → Report) with immutable versioning, a phase-laned visual builder, an Edit-JSON escape hatch, and all six trigger types (content event, schedule, HMAC-verified inbound webhook, manual, connector event, agent)
+- **Run orchestration** — governed step execution with sha256 hashes (never raw PII), egress enforcement, HITL pauses, and retry/dead-letter replay using the spec-67 backoff
+- **Studio Agent** — a natural-language planner over a governed tool registry (Studio ops, flows, connector actions, MCP tools, AI utilities), with Assist/Auto modes, schema-validated content writes, prompt-injection guards, and per-call confirmation for anything destructive or egress-bound — requires `pro-ai`
+- **AI flow authoring** — describe a flow in natural language and review the generated graph before activation (Business, requires `pro-ai`)
+- **Governance plane** — per-org egress policy (allowlist / blocklist / eu_only), always-on SSRF guard, consent ledger, field-level redaction, append-only GDPR-exportable audit, publish guards, rate/quota limits, anomaly detection, and zero-leakage multi-tenancy
+- **Engine** — Activepieces (MIT) sidecar on a private network, swappable via a `FlowEngineAdapter`; isolated so a runaway flow can never crash CE
+- **Licensing** — Team (Connectors + Flows); Business (Agent, AI authoring, advanced governance); Enterprise (federation). Numeric limits `max_flows`, `max_connections`, `max_flow_runs_per_day`, `max_agent_tokens_per_day`
+- **Localized admin UI** — every surface translated across the core EU locales (de, fr, es, it, nl, pl, pt), with English fallback for the rest
+
+New pages: [Integration Hub](/plugins/integrations) and [Integration Hub Governance](/plugins/integrations-governance).
+</Update>
+
 <Update label="2026-06-19" description="pro-ai" tags={["feature"]}>
 ## AI Assistant & Provider Gateway
 
