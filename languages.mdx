@@ -1,0 +1,73 @@
+---
+title: Languages
+description: Pro plugin interfaces are translated and follow the roadbeat Studio interface language, in English and German with a foundation for all 24 EU locales.
+---
+
+## Overview
+
+Every roadbeat Studio **Pro plugin** ships a translated user interface. Plugin screens are shown in **English** and **German** today, with the framework in place to grow to all 24 official EU languages.
+
+<Callout kind="tip">
+  You don't pick a language per plugin. Pro plugins **follow the Studio interface language** — switch it once from the Studio header and every plugin UI follows, instantly and live.
+</Callout>
+
+## Following the Studio language
+
+Pro plugins render inside Studio as embedded Web Components. When you change the interface language in Studio (the language switcher in the top header — see the [Studio interface-language guide](https://studio-docs.roadbeat.net/guides/interface-language)), each open plugin updates immediately — no reload, no per-plugin setting.
+
+On first load a plugin resolves the language as: your saved Studio choice → your browser language → English.
+
+## Available languages
+
+| Code | Language | Status |
+|------|----------|--------|
+| `en` | English | ✅ Shipped (default) |
+| `de` | Deutsch (German) | ✅ Shipped |
+
+<Callout kind="info">
+  Catalogs are versioned with each plugin and served by the Studio host, so a plugin's translations always match the installed plugin version.
+</Callout>
+
+## How it works
+
+Each plugin frontend uses [`@ngx-translate/core`](https://github.com/ngx-translate/core) wired through a shared bootstrap helper:
+
+<Steps>
+  <Step title="Catalogs ship with the plugin" icon="package">
+    A plugin builds `en.json` / `de.json` into `dist/frontend/i18n/`, which the Studio host serves at `/api/v1/plugins/<plugin-id>/ui/i18n/<lang>.json`.
+  </Step>
+  <Step title="The host broadcasts the language" icon="radio">
+    The Studio shell stores the active language and dispatches a `rb:language-changed` event whenever it changes.
+  </Step>
+  <Step title="Plugins react live" icon="languages">
+    Each plugin listens for that event (and cross-tab storage changes) and switches its ngx-translate language on the fly.
+  </Step>
+</Steps>
+
+## Adding a language to a plugin
+
+For plugin authors and self-hosters, adding a locale is a small, self-contained change to a plugin's `frontend/`:
+
+<Steps>
+  <Step title="Copy the English catalog" icon="copy">
+    Duplicate `src/i18n/en.json` to `src/i18n/<code>.json` (e.g. `fr.json`) and translate the values, keeping the **keys identical**.
+  </Step>
+  <Step title="Rebuild" icon="package">
+    The `angular.json` assets glob already emits `src/i18n` into `dist/frontend/i18n/`, so a rebuild publishes the new catalog — the shared bootstrap helper and the host route pick it up automatically.
+  </Step>
+</Steps>
+
+<Callout kind="tip">
+  Keep every catalog's key structure identical to `en.json`. Missing keys fall back to English. Leave brand names (roadbeat, Studio, Pro, plugin names) and code/format placeholders untranslated.
+</Callout>
+
+## Related
+
+<Columns cols={2}>
+  <Card title="Studio interface language" icon="globe" href="https://studio-docs.roadbeat.net/guides/interface-language">
+    How the Studio admin UI language switcher works (CE).
+  </Card>
+  <Card title="All Pro plugins" icon="puzzle" href="/introduction">
+    Browse the full Pro plugin catalog.
+  </Card>
+</Columns>

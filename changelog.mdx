@@ -3,6 +3,17 @@ title: Changelog
 description: Release notes and updates for roadbeat Studio Pro plugins.
 ---
 
+<Update label="2026-06-22" description="Plugin i18n" tags={["feature"]}>
+## Every Pro plugin now speaks your language
+
+New guide: [Languages](/languages). All Pro plugin interfaces are now translated and **follow the Studio interface language** — switch the language once in the Studio header and every plugin UI updates live, no reload.
+
+- **English & German** shipped across all plugins, with a foundation for all 24 EU locales
+- **Follows the host** — plugins react live to the Studio language switch via a shared bootstrap (no per-plugin setting)
+- **Versioned catalogs** — each plugin ships its own `en.json`/`de.json`, served by the Studio host, so translations always match the installed plugin version
+- **Self-host friendly** — add a locale to any plugin by dropping in one JSON file and rebuilding
+</Update>
+
 <Update label="2026-06-20" description="pro-integrations" tags={["feature", "security"]}>
 ## Integration Hub — Connectors, Flows & Studio Agent
 

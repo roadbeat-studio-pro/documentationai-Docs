@@ -33,6 +33,12 @@
                 "title": "Licensing",
                 "path": "licensing",
                 "icon": "key"
+              },
+              {
+                "title": "Languages",
+                "path": "languages",
+                "icon": "languages",
+                "badge": "New"
               }
             ]
           },
