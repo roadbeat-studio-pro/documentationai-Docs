@@ -3,6 +3,46 @@ title: Changelog
 description: Release notes and updates for roadbeat Studio Pro plugins.
 ---
 
+<Update label="2026-07-03" description="Plugin security hardening, reliable workflow automation & content templates" tags={["security", "feature"]}>
+## Security hardening across Pro plugins, plus reliable workflow automation
+
+### Security
+
+A hardening sweep closed several issues found while bringing every Pro plugin
+under test:
+
+- **SSO — SAML is now fail-closed.** SAML assertions are signature-verified
+  against your IdP certificate; a config without a valid certificate, or an
+  assertion whose signature fails, is rejected. OAuth/OIDC client secrets are
+  now **encrypted at rest** (AES-256-GCM, keyed by `PRO_SSO_SECRET_KEY`). See
+  [SSO](/plugins/sso#setting-up-saml-2-0).
+- **API Explorer — SSRF closed.** Request targets are constrained to the
+  configured API origin, so a crafted endpoint can no longer be used to reach
+  internal hosts. See [API Explorer](/plugins/api-explorer).
+- **Preview — tighter token scope.** Draft preview tokens are validated and
+  scoped so a token can only reveal the content it was issued for.
+- **Layouts — parameterized queries** for custom-layout metadata (removes a SQL
+  injection vector).
+
+### Workflow automation now actually fires
+
+Several plugins declared event handlers that were never invoked — these are now
+correctly wired, so the automation they promised runs:
+
+- **Workflows** — the publish guard now enforces required approvals (previously a
+  dead handler let content through), and workflow task/transition events fire.
+- **Notifications** — workflow task assignments, transitions, comments, and
+  @mentions now generate in-app notifications.
+- **Audit** — content and user actions are logged as intended.
+- **Locking** — the content-lock guard is enforced.
+
+### New
+
+- **Content templates (Workflows)** — start new content from reusable templates.
+- **Scheduling** — the scheduler is now timezone-correct and safe to run across
+  multiple instances (no double-execution). See [Scheduling](/plugins/scheduling).
+</Update>
+
 <Update label="2026-06-23" description="24 EU languages" tags={["feature"]}>
 ## Pro plugins now ship all 24 EU languages
 

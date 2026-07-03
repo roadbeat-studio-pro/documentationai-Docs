@@ -70,6 +70,23 @@ Tables created: `pro_sso_configs`, `pro_sso_role_mappings`
   </Step>
 </Steps>
 
+<Callout kind="alert">
+  **SAML assertions are signature-verified (fail-closed).** Every assertion is
+  validated against the IdP `certificate` in your config before its identity is
+  trusted. A configuration **without a valid certificate**, or an assertion whose
+  signature does not verify, is **rejected** — SAML login will not succeed until a
+  correct IdP signing certificate is configured. This closes any path where a
+  forged or unsigned assertion could be accepted, so the `certificate` field is
+  effectively required for SAML.
+</Callout>
+
+<Callout kind="info">
+  **Secrets are encrypted at rest.** OAuth/OIDC `clientSecret` values are stored
+  encrypted (AES-256-GCM) rather than in plaintext. Set the encryption key via the
+  `PRO_SSO_SECRET_KEY` environment variable (a 64-hex-character key); existing
+  plaintext values keep working and are upgraded on next write.
+</Callout>
+
 ### Setting Up OAuth 2.0 / OIDC
 
 ```bash
