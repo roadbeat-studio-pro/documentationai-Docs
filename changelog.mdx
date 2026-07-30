@@ -2,238 +2,247 @@
 title: Changelog
 description: Release notes and updates for roadbeat Studio Pro plugins.
 ---
+<Update label="2026-07-30" description="pro-ai v1.0.0 — content intelligence, sovereignty transparency & cost resilience" tags={["feature","security"]}>
+  ## AI Assistant & Provider Gateway v1.0.0
 
-<Update label="2026-07-30" description="pro-ai v1.0.0 — content intelligence, sovereignty transparency & cost resilience" tags={["feature", "security"]}>
-## AI Assistant & Provider Gateway v1.0.0
+  The `pro-ai` plugin reaches **v1.0.0** with a wave of content-intelligence and
+  governance features:
 
-The `pro-ai` plugin reaches **v1.0.0** with a wave of content-intelligence and
-governance features:
+  ### Content intelligence
 
-### Content intelligence
+  - **Semantic search & "more like this"** — a pgvector-backed embedding index
+    (kept in sync on every content save, with hash-skip so unchanged saves cost
+    nothing) powers `GET /pro/ai/search` and per-item similarity lookups.
+    Local-first: indexing uses the pinned EU/self-hosted embedding model.
+  - **Near-duplicate warnings** — the editor sidebar flags possible duplicates
+    of the open item (vector similarity + lexical overlap; near-verbatim copies
+    called out), and `POST /pro/ai/dedup` gates imports. Advisory only — nothing
+    is ever removed automatically.
+  - **Advisory safety check** — an editor-triggered moderation pass
+    (hate/harassment/sexual/violence/illegal + PII-in-public-content via your
+    redaction rules), **pinned to local providers by default** so flagged
+    content never leaves the instance. Escalation to soft/hard block is org
+    policy.
+  - **Schema-aware tagging & teaser drafting** — facet suggestions constrained
+    to the content type's enumerated vocabulary (hallucination-proof by hard
+    filter) and teaser drafts validated against the type's teaser schema under
+    the honest-framing policy.
 
-- **Semantic search & "more like this"** — a pgvector-backed embedding index
-  (kept in sync on every content save, with hash-skip so unchanged saves cost
-  nothing) powers `GET /pro/ai/search` and per-item similarity lookups.
-  Local-first: indexing uses the pinned EU/self-hosted embedding model.
-- **Near-duplicate warnings** — the editor sidebar flags possible duplicates
-  of the open item (vector similarity + lexical overlap; near-verbatim copies
-  called out), and `POST /pro/ai/dedup` gates imports. Advisory only — nothing
-  is ever removed automatically.
-- **Advisory safety check** — an editor-triggered moderation pass
-  (hate/harassment/sexual/violence/illegal + PII-in-public-content via your
-  redaction rules), **pinned to local providers by default** so flagged
-  content never leaves the instance. Escalation to soft/hard block is org
-  policy.
-- **Schema-aware tagging & teaser drafting** — facet suggestions constrained
-  to the content type's enumerated vocabulary (hallucination-proof by hard
-  filter) and teaser drafts validated against the type's teaser schema under
-  the honest-framing policy.
+  ### Sovereignty made visible
 
-### Sovereignty made visible
+  - Every AI result carries a **provenance badge** — where it ran (Local — no
+    egress / EU / Non-EU), which model, whether PII was redacted, whether a
+    fallback served it.
+  - First use of a non-EU provider is blocked behind an inline, **logged consent
+    dialog**; the providers tab opens with an **egress-posture card** stating
+    whether content can ever leave the EU.
 
-- Every AI result carries a **provenance badge** — where it ran (Local — no
-  egress / EU / Non-EU), which model, whether PII was redacted, whether a
-  fallback served it.
-- First use of a non-EU provider is blocked behind an inline, **logged consent
-  dialog**; the providers tab opens with an **egress-posture card** stating
-  whether content can ever leave the EU.
+  ### Hardening & operations
 
-### Hardening & operations
+  - **Prompt-injection defense** standardized across every surface that ingests
+    external text or images, backed by an adversarial test corpus in CI.
+  - **Spend-velocity safety net** — automation callers (agent, flows, jobs) get
+    a hard short-window token ceiling independent of monthly budgets; org-wide
+    spend anomalies raise admin alerts. Circuit-breaker opens are emitted as
+    events.
+  - **Prometheus metrics** — the seven `ai_*` metrics now export through
+    Studio's `/metrics` endpoint. See [Provider Setup Recipes](/plugins/ai-recipes#monitoring).
+  - **All 24 EU languages** — the AI admin and editor surfaces ship complete
+    catalogs, with key parity enforced in CI.
+  - **Per-field apply** — accepted ✨ suggestions now edit the form field in
+    place in the Studio editor (previously clipboard-only).
 
-- **Prompt-injection defense** standardized across every surface that ingests
-  external text or images, backed by an adversarial test corpus in CI.
-- **Spend-velocity safety net** — automation callers (agent, flows, jobs) get
-  a hard short-window token ceiling independent of monthly budgets; org-wide
-  spend anomalies raise admin alerts. Circuit-breaker opens are emitted as
-  events.
-- **Prometheus metrics** — the seven `ai_*` metrics now export through
-  Studio's `/metrics` endpoint. See [Provider Setup Recipes](/plugins/ai-recipes#monitoring).
-- **All 24 EU languages** — the AI admin and editor surfaces ship complete
-  catalogs, with key parity enforced in CI.
-- **Per-field apply** — accepted ✨ suggestions now edit the form field in
-  place in the Studio editor (previously clipboard-only).
-
-<Callout kind="info">
-  New here? Start with the [Provider Setup Recipes](/plugins/ai-recipes) —
-  local Augmentor, Mistral (EU), Azure OpenAI (EU), and per-user BYO keys.
-</Callout>
+  <Callout kind="info" collapsed="false">
+    New here? Start with the [Provider Setup Recipes](/plugins/ai-recipes) —
+    local Augmentor, Mistral (EU), Azure OpenAI (EU), and per-user BYO keys.
+  </Callout>
 </Update>
 
-<Update label="2026-07-03" description="Plugin security hardening, reliable workflow automation & content templates" tags={["security", "feature"]}>
-## Security hardening across Pro plugins, plus reliable workflow automation
+<Update label="2026-07-03" description="Plugin security hardening, reliable workflow automation & content templates" tags={["security","feature"]}>
+  ## Security hardening across Pro plugins, plus reliable workflow automation
 
-### Security
+  ### Security
 
-A hardening sweep closed several issues found while bringing every Pro plugin
-under test:
+  A hardening sweep closed several issues found while bringing every Pro plugin
+  under test:
 
-- **SSO — SAML is now fail-closed.** SAML assertions are signature-verified
-  against your IdP certificate; a config without a valid certificate, or an
-  assertion whose signature fails, is rejected. OAuth/OIDC client secrets are
-  now **encrypted at rest** (AES-256-GCM, keyed by `PRO_SSO_SECRET_KEY`). See
-  [SSO](/plugins/sso#setting-up-saml-2-0).
-- **API Explorer — SSRF closed.** Request targets are constrained to the
-  configured API origin, so a crafted endpoint can no longer be used to reach
-  internal hosts. See [API Explorer](/plugins/api-explorer).
-- **Preview — tighter token scope.** Draft preview tokens are validated and
-  scoped so a token can only reveal the content it was issued for.
-- **Layouts — parameterized queries** for custom-layout metadata (removes a SQL
-  injection vector).
+  - **SSO — SAML is now fail-closed.** SAML assertions are signature-verified
+    against your IdP certificate; a config without a valid certificate, or an
+    assertion whose signature fails, is rejected. OAuth/OIDC client secrets are
+    now **encrypted at rest** (AES-256-GCM, keyed by `PRO_SSO_SECRET_KEY`). See
+    [SSO](/plugins/sso#setting-up-saml-2-0).
+  - **API Explorer — SSRF closed.** Request targets are constrained to the
+    configured API origin, so a crafted endpoint can no longer be used to reach
+    internal hosts. See [API Explorer](/plugins/api-explorer).
+  - **Preview — tighter token scope.** Draft preview tokens are validated and
+    scoped so a token can only reveal the content it was issued for.
+  - **Layouts — parameterized queries** for custom-layout metadata (removes a SQL
+    injection vector).
 
-### Workflow automation now actually fires
+  ### Workflow automation now actually fires
 
-Several plugins declared event handlers that were never invoked — these are now
-correctly wired, so the automation they promised runs:
+  Several plugins declared event handlers that were never invoked — these are now
+  correctly wired, so the automation they promised runs:
 
-- **Workflows** — the publish guard now enforces required approvals (previously a
-  dead handler let content through), and workflow task/transition events fire.
-- **Notifications** — workflow task assignments, transitions, comments, and
-  @mentions now generate in-app notifications.
-- **Audit** — content and user actions are logged as intended.
-- **Locking** — the content-lock guard is enforced.
+  - **Workflows** — the publish guard now enforces required approvals (previously a
+    dead handler let content through), and workflow task/transition events fire.
+  - **Notifications** — workflow task assignments, transitions, comments, and
+    @mentions now generate in-app notifications.
+  - **Audit** — content and user actions are logged as intended.
+  - **Locking** — the content-lock guard is enforced.
 
-### New
+  ### New
 
-- **Content templates (Workflows)** — start new content from reusable templates.
-- **Scheduling** — the scheduler is now timezone-correct and safe to run across
-  multiple instances (no double-execution). See [Scheduling](/plugins/scheduling).
+  - **Content templates (Workflows)** — start new content from reusable templates.
+  - **Scheduling** — the scheduler is now timezone-correct and safe to run across
+    multiple instances (no double-execution). See [Scheduling](/plugins/scheduling).
 </Update>
 
 <Update label="2026-06-23" description="24 EU languages" tags={["feature"]}>
-## Pro plugins now ship all 24 EU languages
+  ## Pro plugins now ship all 24 EU languages
 
-Every Pro plugin UI is now translated into **all 24 official EU languages** (up from English & German). Plugins still follow the Studio interface language — pick any of the 24 once and every plugin UI updates live. See [Languages](/languages).
+  Every Pro plugin UI is now translated into **all 24 official EU languages** (up from English & German). Plugins still follow the Studio interface language — pick any of the 24 once and every plugin UI updates live. See [Languages](/languages).
 
-English remains the source and fallback; translations are refined over time.
+  English remains the source and fallback; translations are refined over time.
 </Update>
 
 <Update label="2026-06-22" description="Plugin i18n" tags={["feature"]}>
-## Every Pro plugin now speaks your language
+  ## Every Pro plugin now speaks your language
 
-New guide: [Languages](/languages). All Pro plugin interfaces are now translated and **follow the Studio interface language** — switch the language once in the Studio header and every plugin UI updates live, no reload.
+  New guide: [Languages](/languages). All Pro plugin interfaces are now translated and **follow the Studio interface language** — switch the language once in the Studio header and every plugin UI updates live, no reload.
 
-- **English & German** shipped across all plugins, with a foundation for all 24 EU locales
-- **Follows the host** — plugins react live to the Studio language switch via a shared bootstrap (no per-plugin setting)
-- **Versioned catalogs** — each plugin ships its own `en.json`/`de.json`, served by the Studio host, so translations always match the installed plugin version
-- **Self-host friendly** — add a locale to any plugin by dropping in one JSON file and rebuilding
+  - **English & German** shipped across all plugins, with a foundation for all 24 EU locales
+  - **Follows the host** — plugins react live to the Studio language switch via a shared bootstrap (no per-plugin setting)
+  - **Versioned catalogs** — each plugin ships its own `en.json`/`de.json`, served by the Studio host, so translations always match the installed plugin version
+  - **Self-host friendly** — add a locale to any plugin by dropping in one JSON file and rebuilding
 </Update>
 
-<Update label="2026-06-20" description="pro-integrations" tags={["feature", "security"]}>
-## Integration Hub — Connectors, Flows & Studio Agent
+<Update label="2026-06-20" description="pro-integrations" tags={["feature","security"]}>
+  ## Integration Hub — Connectors, Flows & Studio Agent
 
-The **`pro-integrations`** plugin documentation is now published: a goal-driven automation platform behind a European, privacy-first governance plane.
+  The **`pro-integrations`** plugin documentation is now published: a goal-driven automation platform behind a European, privacy-first governance plane.
 
-- **Connectors** — a governed catalog of external tools: flow-engine native nodes, community pieces, MCP servers, an OpenAPI 3.x importer, and generic primitives (HTTP, webhook in/out, SQL, FTP, S3, email, SSH), each with a maturity badge and data-residency label
-- **Connections + credential vault** — OAuth2 (PKCE), API-key, and Basic auth, encrypted at rest with AES-256-GCM and a per-org data key; secrets are never returned to the frontend, stored in the engine, or sent to the model, and are leased just-in-time per call
-- **Flows** — a portable, engine-agnostic `FlowDefinition` (Input → Check → Decide → Act → Report) with immutable versioning, a phase-laned visual builder, an Edit-JSON escape hatch, and all six trigger types (content event, schedule, HMAC-verified inbound webhook, manual, connector event, agent)
-- **Run orchestration** — governed step execution with sha256 hashes (never raw PII), egress enforcement, HITL pauses, and retry/dead-letter replay using the spec-67 backoff
-- **Studio Agent** — a natural-language planner over a governed tool registry (Studio ops, flows, connector actions, MCP tools, AI utilities), with Assist/Auto modes, schema-validated content writes, prompt-injection guards, and per-call confirmation for anything destructive or egress-bound — requires `pro-ai`
-- **AI flow authoring** — describe a flow in natural language and review the generated graph before activation (Business, requires `pro-ai`)
-- **Governance plane** — per-org egress policy (allowlist / blocklist / eu_only), always-on SSRF guard, consent ledger, field-level redaction, append-only GDPR-exportable audit, publish guards, rate/quota limits, anomaly detection, and zero-leakage multi-tenancy
-- **Engine** — Activepieces (MIT) sidecar on a private network, swappable via a `FlowEngineAdapter`; isolated so a runaway flow can never crash CE
-- **Licensing** — Team (Connectors + Flows); Business (Agent, AI authoring, advanced governance); Enterprise (federation). Numeric limits `max_flows`, `max_connections`, `max_flow_runs_per_day`, `max_agent_tokens_per_day`
-- **Localized admin UI** — every surface translated across the core EU locales (de, fr, es, it, nl, pl, pt), with English fallback for the rest
+  - **Connectors** — a governed catalog of external tools: flow-engine native nodes, community pieces, MCP servers, an OpenAPI 3.x importer, and generic primitives (HTTP, webhook in/out, SQL, FTP, S3, email, SSH), each with a maturity badge and data-residency label
+  - **Connections + credential vault** — OAuth2 (PKCE), API-key, and Basic auth, encrypted at rest with AES-256-GCM and a per-org data key; secrets are never returned to the frontend, stored in the engine, or sent to the model, and are leased just-in-time per call
+  - **Flows** — a portable, engine-agnostic `FlowDefinition` (Input → Check → Decide → Act → Report) with immutable versioning, a phase-laned visual builder, an Edit-JSON escape hatch, and all six trigger types (content event, schedule, HMAC-verified inbound webhook, manual, connector event, agent)
+  - **Run orchestration** — governed step execution with sha256 hashes (never raw PII), egress enforcement, HITL pauses, and retry/dead-letter replay using the spec-67 backoff
+  - **Studio Agent** — a natural-language planner over a governed tool registry (Studio ops, flows, connector actions, MCP tools, AI utilities), with Assist/Auto modes, schema-validated content writes, prompt-injection guards, and per-call confirmation for anything destructive or egress-bound — requires `pro-ai`
+  - **AI flow authoring** — describe a flow in natural language and review the generated graph before activation (Business, requires `pro-ai`)
+  - **Governance plane** — per-org egress policy (allowlist / blocklist / eu\_only), always-on SSRF guard, consent ledger, field-level redaction, append-only GDPR-exportable audit, publish guards, rate/quota limits, anomaly detection, and zero-leakage multi-tenancy
+  - **Engine** — Activepieces (MIT) sidecar on a private network, swappable via a `FlowEngineAdapter`; isolated so a runaway flow can never crash CE
+  - **Licensing** — Team (Connectors + Flows); Business (Agent, AI authoring, advanced governance); Enterprise (federation). Numeric limits `max_flows`, `max_connections`, `max_flow_runs_per_day`, `max_agent_tokens_per_day`
+  - **Localized admin UI** — every surface translated across the core EU locales (de, fr, es, it, nl, pl, pt), with English fallback for the rest
 
-New pages: [Integration Hub](/plugins/integrations), [Integration Hub Governance](/plugins/integrations-governance), [Connector Authoring](/plugins/integrations-connectors), and [Flow Recipes](/plugins/integrations-recipes).
+  New pages: [Integration Hub](/plugins/integrations), [Integration Hub Governance](/plugins/integrations-governance), [Connector Authoring](/plugins/integrations-connectors), and [Flow Recipes](/plugins/integrations-recipes).
 </Update>
 
 <Update label="2026-06-19" description="pro-ai" tags={["feature"]}>
-## AI Assistant & Provider Gateway
+  ## AI Assistant & Provider Gateway
 
-The **`pro-ai`** plugin documentation is now published: one governed gateway for local + cloud AI across Studio.
+  The **`pro-ai`** plugin documentation is now published: one governed gateway for local + cloud AI across Studio.
 
-- **Provider gateway** — Augmentor, Ollama, Mistral, Azure OpenAI, OpenAI, Anthropic, Gemini, and any OpenAI-compatible endpoint behind a uniform adapter, with goal-driven routing, health-based fallback, and a per-provider circuit breaker
-- **Capabilities** — chat (with tool-calling), embeddings, translation, an 11-action writing assistant, schema-grounded generation (AJV-validated), vision, transcription, and classification
-- **Privacy & governance** — residency modes, non-EU consent, enforced zero-retention, PII redaction before cloud egress, and an append-only audit log (hashed by default)
-- **Cost control** — org/per-user token & cost budgets, per-user rate limits, license-tier ceilings, and a burn-down dashboard
-- **Licensing** — Team tier; non-EU providers and advanced governance gated to Business (`ai_cloud_providers_enabled`, `ai_advanced_governance`), with `max_ai_tokens_per_day` / `max_ai_cost_per_month` ceilings
-- **Shared backbone** — sibling Pro plugins consume the gateway via `AI_SERVICE`; capabilities are also exposed as MCP tools
-- **Localized admin UI** — the AI admin console and in-editor widgets are translated across the core EU locales (de, fr, es, it, nl, pl, pt), with English fallback for the rest
+  - **Provider gateway** — Augmentor, Ollama, Mistral, Azure OpenAI, OpenAI, Anthropic, Gemini, and any OpenAI-compatible endpoint behind a uniform adapter, with goal-driven routing, health-based fallback, and a per-provider circuit breaker
+  - **Capabilities** — chat (with tool-calling), embeddings, translation, an 11-action writing assistant, schema-grounded generation (AJV-validated), vision, transcription, and classification
+  - **Privacy & governance** — residency modes, non-EU consent, enforced zero-retention, PII redaction before cloud egress, and an append-only audit log (hashed by default)
+  - **Cost control** — org/per-user token & cost budgets, per-user rate limits, license-tier ceilings, and a burn-down dashboard
+  - **Licensing** — Team tier; non-EU providers and advanced governance gated to Business (`ai_cloud_providers_enabled`, `ai_advanced_governance`), with `max_ai_tokens_per_day` / `max_ai_cost_per_month` ceilings
+  - **Shared backbone** — sibling Pro plugins consume the gateway via `AI_SERVICE`; capabilities are also exposed as MCP tools
+  - **Localized admin UI** — the AI admin console and in-editor widgets are translated across the core EU locales (de, fr, es, it, nl, pl, pt), with English fallback for the rest
 
-New pages: [AI Provider Gateway](/plugins/ai) and [AI Privacy & Governance](/plugins/ai-governance).
+  New pages: [AI Provider Gateway](/plugins/ai) and [AI Privacy & Governance](/plugins/ai-governance).
 </Update>
 
 <Update label="2026-05-27" description="v0.5.0" tags={["feature"]}>
-## pro-activitypub (P10)
+  ## pro-activitypub (P10)
 
-The **pro-activitypub** plugin adds enterprise-grade federation capabilities for high-volume publishers. Requires the Pro license tier.
+  The **pro-activitypub** plugin adds enterprise-grade federation capabilities for high-volume publishers. Requires the Pro license tier.
 
-**M10.1 — Multi-Actor Publishing:**
-- Publish one piece of content to multiple AP outboxes (org + author + topic actors) in a single call
-- Automatic follower deduplication across actors
-- Full delivery tracking per actor
+  **M10.1 — Multi-Actor Publishing:**
 
-**M10.2 — Scheduled Federation:**
-- Decouple ActivityPub delivery from CMS publish time
-- Schedule federation for specific dates/times
-- Batch deliveries during optimal engagement windows
-- Cancel, reschedule, or execute jobs manually
-- Minute-level cron precision
+  - Publish one piece of content to multiple AP outboxes (org + author + topic actors) in a single call
+  - Automatic follower deduplication across actors
+  - Full delivery tracking per actor
 
-**M10.3 — Federation Analytics:**
-- Per-host delivery success rates, failure analysis, average attempt counts
-- Follower geographic distribution by TLD → ISO country mapping
-- Boost lineage: top-boosted content, per-host spread, unique host counts
+  **M10.2 — Scheduled Federation:**
 
-**M10.4 — Advanced Content Filters:**
-- Rule-based inbound content filtering (regex, keyword, glob, domain, actor pattern, language, AI toxicity)
-- Actions: reject, quarantine, flag, log
-- Per-rule hit counters, test endpoint for dry-run evaluation
-- Auto-reload rules every 5 minutes
+  - Decouple ActivityPub delivery from CMS publish time
+  - Schedule federation for specific dates/times
+  - Batch deliveries during optimal engagement windows
+  - Cancel, reschedule, or execute jobs manually
+  - Minute-level cron precision
 
-**M10.4 — External Cross-Posting:**
-- Import from Mastodon RSS feeds or ActivityPub outbox collections
-- Configurable per-source poll interval
-- Deduplication by original URI
-- Draft review workflow: pending → approve/reject
-- Manual poll trigger for immediate import
+  **M10.3 — Federation Analytics:**
+
+  - Per-host delivery success rates, failure analysis, average attempt counts
+  - Follower geographic distribution by TLD → ISO country mapping
+  - Boost lineage: top-boosted content, per-host spread, unique host counts
+
+  **M10.4 — Advanced Content Filters:**
+
+  - Rule-based inbound content filtering (regex, keyword, glob, domain, actor pattern, language, AI toxicity)
+  - Actions: reject, quarantine, flag, log
+  - Per-rule hit counters, test endpoint for dry-run evaluation
+  - Auto-reload rules every 5 minutes
+
+  **M10.4 — External Cross-Posting:**
+
+  - Import from Mastodon RSS feeds or ActivityPub outbox collections
+  - Configurable per-source poll interval
+  - Deduplication by original URI
+  - Draft review workflow: pending → approve/reject
+  - Manual poll trigger for immediate import
 </Update>
 
 <Update label="2026-03-28" description="v0.4.0" tags={["feature"]}>
-## What changed
-- **pro-saved-views** v0.1.0 — new plugin for persisting content list filter/sort/view combinations per user
-  - Save, recall, edit, duplicate, and delete named views
-  - Share views with the organization or keep them private
-  - Pin favorite views for quick-access bar
-  - Drag-and-drop reorder for pinned views
-  - Usage tracking (count and last-used timestamp)
-  - Icon and color customization per view
-  - Stores view mode, sort, page size, content type, status, locale, and search query
-  - Angular Elements frontend (Web Component) served via `PluginAssetsController`
-  - Database table: `pro_saved_views`, migration: `001_create_saved_views.sql`
-  - Tier: Starter, required permission: `editor`
+  ## What changed
+
+  - **pro-saved-views** v0.1.0 — new plugin for persisting content list filter/sort/view combinations per user
+    - Save, recall, edit, duplicate, and delete named views
+    - Share views with the organization or keep them private
+    - Pin favorite views for quick-access bar
+    - Drag-and-drop reorder for pinned views
+    - Usage tracking (count and last-used timestamp)
+    - Icon and color customization per view
+    - Stores view mode, sort, page size, content type, status, locale, and search query
+    - Angular Elements frontend (Web Component) served via `PluginAssetsController`
+    - Database table: `pro_saved_views`, migration: `001_create_saved_views.sql`
+    - Tier: Starter, required permission: `editor`
 </Update>
 
 <Update label="2026-03-09" description="v0.3.0" tags={["feature"]}>
-## What changed
-- **pro-notifications** v0.3.0 — external channel integrations (Slack, Teams, Discord, generic webhook), per-user preferences with digest and DND, notification analytics, housekeeping
-- **pro-audit** v0.3.0 — saved searches, compliance reports (GDPR, user-access, data-changes, permission-changes, api-access), export JSON/CSV
-- **pro-advanced-roles** v0.3.0 — custom role editor with resource-level permissions, role duplication, role comparison, full permission matrix, system role seeding
-- **pro-preview** v0.2.0 — shareable preview URLs with password protection, access limits, visitor tracking, preview analytics
-- **pro-api-explorer** — interactive endpoint catalog, request execution, cURL export, request history with save/replay
-- **pro-whitelabel** — custom themes, branding (logo, app name, favicon), accessibility settings, theme presets, import/export
-- **pro-layouts** — custom layout builder with draft/publish, versioning, duplication, import/export, Git sync
+  ## What changed
+
+  - **pro-notifications** v0.3.0 — external channel integrations (Slack, Teams, Discord, generic webhook), per-user preferences with digest and DND, notification analytics, housekeeping
+  - **pro-audit** v0.3.0 — saved searches, compliance reports (GDPR, user-access, data-changes, permission-changes, api-access), export JSON/CSV
+  - **pro-advanced-roles** v0.3.0 — custom role editor with resource-level permissions, role duplication, role comparison, full permission matrix, system role seeding
+  - **pro-preview** v0.2.0 — shareable preview URLs with password protection, access limits, visitor tracking, preview analytics
+  - **pro-api-explorer** — interactive endpoint catalog, request execution, cURL export, request history with save/replay
+  - **pro-whitelabel** — custom themes, branding (logo, app name, favicon), accessibility settings, theme presets, import/export
+  - **pro-layouts** — custom layout builder with draft/publish, versioning, duplication, import/export, Git sync
 </Update>
 
 <Update label="2026-02-25" description="v0.2.0" tags={["feature"]}>
-## What changed
-- **pro-import** v0.2.0 — CSV/JSON content import with field mapping, transforms, duplicate detection, preview, rollback
-- **pro-export** v0.2.0 — CSV/JSON content export with reusable templates, field transforms, auto-expiry
-- **pro-graphql** — auto-generated GraphQL SDL from content type schemas, dynamic queries, filtering, responsive image resolution, batch queries
-- **pro-environments** — dev/staging/prod environments, content promotion, bulk sync, comparison, cloning, aliases
-- **pro-sso** — SAML 2.0, OAuth 2.0/OIDC, SCIM 2.0 provisioning, JIT role mapping, domain enforcement
-- **pro-webhooks** — retry with exponential backoff, dead letter queue, incoming webhooks, delivery analytics, housekeeping
-- **pro-bulk-ops** — bulk asset move, delete, tag, download
-- **pro-media** — video processing jobs, thumbnail generation, transcode profiles
-- **pro-versioning** — side-by-side version comparison with field-level and word-level diffs
-- **pro-realtime** — WebSocket gateway, editing presence, cursor sharing, live event broadcasting
+  ## What changed
+
+  - **pro-import** v0.2.0 — CSV/JSON content import with field mapping, transforms, duplicate detection, preview, rollback
+  - **pro-export** v0.2.0 — CSV/JSON content export with reusable templates, field transforms, auto-expiry
+  - **pro-graphql** — auto-generated GraphQL SDL from content type schemas, dynamic queries, filtering, responsive image resolution, batch queries
+  - **pro-environments** — dev/staging/prod environments, content promotion, bulk sync, comparison, cloning, aliases
+  - **pro-sso** — SAML 2.0, OAuth 2.0/OIDC, SCIM 2.0 provisioning, JIT role mapping, domain enforcement
+  - **pro-webhooks** — retry with exponential backoff, dead letter queue, incoming webhooks, delivery analytics, housekeeping
+  - **pro-bulk-ops** — bulk asset move, delete, tag, download
+  - **pro-media** — video processing jobs, thumbnail generation, transcode profiles
+  - **pro-versioning** — side-by-side version comparison with field-level and word-level diffs
+  - **pro-realtime** — WebSocket gateway, editing presence, cursor sharing, live event broadcasting
 </Update>
 
 <Update label="2026-02-10" description="v0.1.0" tags={["feature"]}>
-## What changed
-- **Initial Release** — first three plugins
-- **pro-workflows** v0.1.0 — configurable editorial workflows with states, transitions, approvals, task assignment, publish guard, workflow builder with templates/simulation/analysis
-- **pro-scheduling** v0.1.0 — scheduled publish/unpublish/archive, bulk scheduling, releases, calendar view, background processor
-- **pro-locking** v0.1.0 — pessimistic content locking with exclusive/advisory modes, heartbeat extension, force-unlock, editor sidebar panel
-- **plugin-base** — shared `AbstractPlugin` base class, CE DI tokens, auth utilities
+  ## What changed
+
+  - **Initial Release** — first three plugins
+  - **pro-workflows** v0.1.0 — configurable editorial workflows with states, transitions, approvals, task assignment, publish guard, workflow builder with templates/simulation/analysis
+  - **pro-scheduling** v0.1.0 — scheduled publish/unpublish/archive, bulk scheduling, releases, calendar view, background processor
+  - **pro-locking** v0.1.0 — pessimistic content locking with exclusive/advisory modes, heartbeat extension, force-unlock, editor sidebar panel
+  - **plugin-base** — shared `AbstractPlugin` base class, CE DI tokens, auth utilities
 </Update>
+
