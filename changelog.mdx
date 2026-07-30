@@ -3,6 +3,62 @@ title: Changelog
 description: Release notes and updates for roadbeat Studio Pro plugins.
 ---
 
+<Update label="2026-07-30" description="pro-ai v1.0.0 — content intelligence, sovereignty transparency & cost resilience" tags={["feature", "security"]}>
+## AI Assistant & Provider Gateway v1.0.0
+
+The `pro-ai` plugin reaches **v1.0.0** with a wave of content-intelligence and
+governance features:
+
+### Content intelligence
+
+- **Semantic search & "more like this"** — a pgvector-backed embedding index
+  (kept in sync on every content save, with hash-skip so unchanged saves cost
+  nothing) powers `GET /pro/ai/search` and per-item similarity lookups.
+  Local-first: indexing uses the pinned EU/self-hosted embedding model.
+- **Near-duplicate warnings** — the editor sidebar flags possible duplicates
+  of the open item (vector similarity + lexical overlap; near-verbatim copies
+  called out), and `POST /pro/ai/dedup` gates imports. Advisory only — nothing
+  is ever removed automatically.
+- **Advisory safety check** — an editor-triggered moderation pass
+  (hate/harassment/sexual/violence/illegal + PII-in-public-content via your
+  redaction rules), **pinned to local providers by default** so flagged
+  content never leaves the instance. Escalation to soft/hard block is org
+  policy.
+- **Schema-aware tagging & teaser drafting** — facet suggestions constrained
+  to the content type's enumerated vocabulary (hallucination-proof by hard
+  filter) and teaser drafts validated against the type's teaser schema under
+  the honest-framing policy.
+
+### Sovereignty made visible
+
+- Every AI result carries a **provenance badge** — where it ran (Local — no
+  egress / EU / Non-EU), which model, whether PII was redacted, whether a
+  fallback served it.
+- First use of a non-EU provider is blocked behind an inline, **logged consent
+  dialog**; the providers tab opens with an **egress-posture card** stating
+  whether content can ever leave the EU.
+
+### Hardening & operations
+
+- **Prompt-injection defense** standardized across every surface that ingests
+  external text or images, backed by an adversarial test corpus in CI.
+- **Spend-velocity safety net** — automation callers (agent, flows, jobs) get
+  a hard short-window token ceiling independent of monthly budgets; org-wide
+  spend anomalies raise admin alerts. Circuit-breaker opens are emitted as
+  events.
+- **Prometheus metrics** — the seven `ai_*` metrics now export through
+  Studio's `/metrics` endpoint. See [Provider Setup Recipes](/plugins/ai-recipes#monitoring).
+- **All 24 EU languages** — the AI admin and editor surfaces ship complete
+  catalogs, with key parity enforced in CI.
+- **Per-field apply** — accepted ✨ suggestions now edit the form field in
+  place in the Studio editor (previously clipboard-only).
+
+<Callout kind="info">
+  New here? Start with the [Provider Setup Recipes](/plugins/ai-recipes) —
+  local Augmentor, Mistral (EU), Azure OpenAI (EU), and per-user BYO keys.
+</Callout>
+</Update>
+
 <Update label="2026-07-03" description="Plugin security hardening, reliable workflow automation & content templates" tags={["security", "feature"]}>
 ## Security hardening across Pro plugins, plus reliable workflow automation
 

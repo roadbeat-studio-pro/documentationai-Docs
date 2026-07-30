@@ -57,6 +57,11 @@ The gateway exposes a single service surface (`AI_SERVICE`) and a REST API under
 | `vision` | Image → alt text, caption, OCR, tags, or description | Alt-text on upload |
 | `transcribe` | Audio/video → text | Media workflows |
 | `classify` | Topic/sentiment classification or entity/field extraction | Moderation, enrichment |
+| `semanticSearch` / `moreLikeThis` | Rank org content by meaning against the pgvector embedding index (`moreLikeThis` is a pure index lookup — no inference) | Discovery, related content |
+| `findNearDuplicates` | Advisory near-duplicate candidates (vector + lexical shingle overlap; near-verbatim copies flagged) | Editor warning, import gate |
+| `moderate` | Advisory safety/PII pass — pinned to local providers by default so flagged content never leaves the instance | Publish review |
+| `suggestFacets` | Facet values constrained to the content type's enumerated schema vocabulary (hallucination-proof by hard filter) | Goal-driven tagging |
+| `summarizeForTeaser` | Teaser fields conforming to the type's teaser schema, honest-framing enforced, AJV-validated | Discovery teasers |
 
 ### Writing assistant actions
 
@@ -156,7 +161,7 @@ Privacy, consent, redaction, budgets, and the audit trail are documented in deta
 
 ## For Editors
 
-When `pro-ai` is active, editors get an **AI Assistant** sidebar and per-field **✨ actions** directly in the content editor — quick actions, chat, one-click translation, and alt-text suggestions, each shown as an accept/reject diff so nothing is ever applied silently.
+When `pro-ai` is active, editors get an **AI Assistant** sidebar and per-field **✨ actions** directly in the content editor — quick actions (including a local **Safety check**, **Suggest tags**, and **Draft teaser**), chat, one-click translation, and alt-text suggestions, each shown as an accept/reject diff so nothing is ever applied silently. Every result carries a **provenance badge** (Local — no egress / EU cloud / Non-EU cloud, with redaction and fallback markers), the sidebar warns about **possible duplicates** of the open item, and the first use of a non-EU provider is blocked behind an inline, logged **consent dialog**.
 
 <Card title="Using AI in the editor" icon="sparkles" href="https://studio-docs.roadbeat.net/guides/ai-assistant" horizontal={true} cta="Open the editor guide">
   The full editor-facing walkthrough lives in the Studio documentation.

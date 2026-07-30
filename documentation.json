@@ -52,6 +52,12 @@
                 "icon": "sparkles"
               },
               {
+                "title": "Provider Setup Recipes",
+                "path": "plugins/ai-recipes",
+                "icon": "wrench",
+                "badge": "New"
+              },
+              {
                 "title": "AI Privacy & Governance",
                 "path": "plugins/ai-governance",
                 "icon": "shield"

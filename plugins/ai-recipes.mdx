@@ -1,0 +1,131 @@
+---
+title: AI Provider Setup Recipes
+description: Step-by-step provider setup for the pro-ai gateway — local Augmentor/Ollama, Mistral (EU), Azure OpenAI (EU region), and per-user BYO keys.
+---
+
+## Overview
+
+These recipes take you from a fresh `pro-ai` installation to a working, governed provider configuration. All of them are applied in **Settings → AI** (`/pro/ai`) or via the [admin API](/plugins/ai#api-reference); keys entered in the UI are stored in the encrypted credential vault and never returned.
+
+<Callout kind="tip">
+  **Recommended posture:** a local Augmentor as the preferred provider with Mistral (EU) as the cloud fallback. Content then runs on your own hardware by default and never leaves the EU even under fallback — the egress-posture card on the providers tab confirms it at a glance.
+</Callout>
+
+## Recipe 1 — Local Augmentor / Ollama (EU-sovereign default)
+
+The Augmentor is roadbeat's on-prem AI service (vLLM/Ollama serving Mistral models, OpenAI-compatible on port `3800`). A plain Ollama works identically.
+
+<Steps>
+  <Step title="Verify the endpoint">
+    ```bash
+    curl http://your-augmentor-host:3800/v1/models
+    # A plain Ollama: curl http://localhost:11434/v1/models
+    ```
+  </Step>
+  <Step title="Add the provider">
+    In **Settings → AI → Providers**, click **Add**:
+
+    | Field | Value |
+    |---|---|
+    | Type | `augmentor` (or `ollama`) |
+    | Name | `Local Augmentor` |
+    | Base URL | `http://your-augmentor-host:3800/v1` |
+    | API key | *(empty — local endpoints need none)* |
+    | Residency | `self_hosted` |
+    | Priority | `1` (lower = preferred) |
+  </Step>
+  <Step title="Register its models">
+    Add the models the endpoint serves, e.g. `mistral-small3.2` (capabilities: `chat`, `tools`) and `multilingual-e5-large` (capability: `embed`, 1024 dimensions — the embedding index is pinned to this space).
+  </Step>
+  <Step title="Test">
+    Click **Test** on the provider row — you should see an online badge with latency. Every assist in the editor now shows a **Local — no egress** provenance badge.
+  </Step>
+</Steps>
+
+## Recipe 2 — Mistral (EU cloud fallback)
+
+<Steps>
+  <Step title="Create an API key">
+    Create a key in the [Mistral console](https://console.mistral.ai/). Mistral is EU-headquartered (Paris) — the preferred cloud fallback.
+  </Step>
+  <Step title="Add the provider">
+    | Field | Value |
+    |---|---|
+    | Type | `mistral` |
+    | Name | `Mistral (EU)` |
+    | Base URL | *(empty — defaults to `https://api.mistral.ai/v1`)* |
+    | API key | your key *(vaulted on save)* |
+    | Residency | `eu` |
+    | No retention | enable if your Mistral plan guarantees zero data retention |
+    | Priority | `2` |
+  </Step>
+  <Step title="Register models">
+    e.g. `mistral-small-latest` (`chat`, `tools`) and `mistral-embed` (`embed`). Prefer **pinned version ids** (like `mistral-small-2409`) over `-latest` for reproducibility — the usage log always records the model the provider actually served.
+  </Step>
+</Steps>
+
+<Callout kind="alert">
+  In `eu_only` residency mode, a cloud provider without **No retention** is blocked unless an admin records an explicit override — see [Governance](/plugins/ai-governance#enforced-zero-retention).
+</Callout>
+
+## Recipe 3 — Azure OpenAI (EU region)
+
+For organizations that need GPT-family models with EU data residency.
+
+<Steps>
+  <Step title="Deploy a model in an EU region">
+    In the Azure portal, create an Azure OpenAI resource in an EU region (e.g. `swedencentral`, `francecentral`) and deploy a model. The **deployment name** acts as the model id.
+  </Step>
+  <Step title="Add the provider">
+    | Field | Value |
+    |---|---|
+    | Type | `azure-openai` |
+    | Name | `Azure OpenAI (EU)` |
+    | Base URL | `https://your-resource.openai.azure.com` |
+    | API key | your Azure key *(vaulted)* |
+    | Residency | `eu` |
+  </Step>
+  <Step title="Register the deployment">
+    Add a model whose id equals your **deployment name**. The gateway speaks Azure's per-deployment routes and `api-key` header automatically.
+  </Step>
+</Steps>
+
+<Callout kind="info">
+  Non-EU providers (OpenAI, Anthropic Claude, Google Gemini) follow the same steps with residency `non_eu` — but they additionally require the Business `ai_cloud_providers_enabled` entitlement and an explicit, logged org consent before first use. Editors hit an inline consent dialog; see [Governance](/plugins/ai-governance#cloud-provider-consent).
+</Callout>
+
+## Recipe 4 — Per-user BYO keys
+
+Any user can bring their own key for a provider type instead of using the org-shared one:
+
+<Steps>
+  <Step title="Add a user-scoped provider">
+    On **Settings → AI → Providers**, choose scope **User** when adding the provider. The key is attributed to that user and still encrypted under the org's vault key.
+  </Step>
+  <Step title="Resolution order">
+    At call time, a caller's own key wins over the org-shared key for the same provider type; usage and budgets are attributed to the owning scope.
+  </Step>
+</Steps>
+
+## Checking your egress posture
+
+The providers tab opens with the **egress posture card**: the effective residency mode, whether any non-EU egress is structurally possible, and per provider whether routing can ever reach it (blocked / needs consent / reachable). `GET /api/v1/pro/ai/egress-posture` returns the same summary for automation.
+
+```json
+{
+  "residencyMode": "eu_only",
+  "noNonEuEgress": true,
+  "providers": [
+    { "type": "augmentor", "residency": "self_hosted", "reachable": true },
+    { "type": "mistral", "residency": "eu", "reachable": true, "noRetention": true }
+  ]
+}
+```
+
+## Monitoring
+
+`pro-ai` exports its metrics through Studio's `/metrics` endpoint (Prometheus text format, token-guarded): `ai_requests_total`, `ai_tokens_total`, `ai_cost_total`, `ai_latency_seconds` (`_sum`/`_count`), `ai_fallbacks_total{from,to}`, `ai_budget_blocks_total{reason}`, and `ai_redactions_total`. Alert on `ai_fallbacks_total` (preferred provider down) and `ai_budget_blocks_total{reason="velocity_ceiling"}` (a runaway automation loop was stopped).
+
+<Card title="Governance: residency, consent, redaction, budgets" icon="shield" href="/plugins/ai-governance" horizontal={true} cta="Open governance guide">
+  Once providers are configured, review the governance controls that gate every call.
+</Card>
