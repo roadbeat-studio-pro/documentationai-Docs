@@ -13,8 +13,9 @@ The **Custom Layouts** plugin extends CE's built-in layout system with a full la
 - **Draft/Publish workflow** — edit layouts as drafts, then publish when ready
 - **Version history** — track changes and restore previous versions
 - **Duplication** — clone existing layouts to create variations
-- **Import/Export** — share layout definitions as JSON files
-- **Git sync** — connect a Git repository for version-controlled layout management
+- **Import/Export** — share layout definitions as JSON files (exports are sanitized of org-specific values)
+- **Git sync** — real pull/push against a Git repository, with encrypted credentials and SSRF-safe repository URLs
+- **Layout gallery** — share layouts across organizations through a reviewed, leak-safe submission flow
 
 ## For Admins: Managing Layouts
 
@@ -22,9 +23,12 @@ The **Custom Layouts** plugin extends CE's built-in layout system with a full la
 
 ```bash
 psql -U postgres -d roadbeat_studio -f plugins/pro-layouts/migrations/001_create_custom_layouts.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-layouts/migrations/002_org_cascade_and_default_index.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-layouts/migrations/003_git_config_and_vault.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-layouts/migrations/004_layout_gallery.sql
 ```
 
-Table created: `pro_custom_layouts`
+Tables created: `pro_custom_layouts`, `pro_layout_git_config`, `pro_layout_vault` (+`_dek`), `pro_layout_gallery` (+installs/ratings)
 
 ### Creating a Custom Layout
 
@@ -48,22 +52,49 @@ Table created: `pro_custom_layouts`
 
 ### Git Sync
 
-Connect a Git repository to manage layouts as code:
+Connect a Git repository to manage layouts as code. Configuration is **one row per organization**, and the access token is stored through the credential vault (AES-256-GCM under a per-org key) — responses only ever contain a masked hint:
 
 ```bash
-# Configure Git repository
+# Configure Git repository (token stored encrypted, never returned)
 POST /api/v1/pro/layouts/git/configure
-{ "repoUrl": "https://github.com/your-org/studio-layouts.git", "branch": "main", "path": "layouts/" }
+{
+  "repoUrl": "https://codeberg.org/your-org/studio-layouts.git",
+  "branch": "main",
+  "path": "layouts/",
+  "token": "your-access-token"
+}
 
-# Check sync status
+# Check sync status (repo, branch, masked token hint, last sync, commit hash)
 GET /api/v1/pro/layouts/git/status
 
-# Pull latest changes from Git
+# Pull .layout.json files from the repository — incoming definitions land as DRAFTS
 POST /api/v1/pro/layouts/git/sync
 
-# Push local changes to Git
+# Push layout exports to the repository
 POST /api/v1/pro/layouts/git/push
 ```
+
+- **Pull lands as drafts** — synced definitions never clobber the published layout; review and publish them like any other draft. The response reports every file (`created` / `updated` / `skipped` / `failed`) and records the real commit hash.
+- **Repository URLs are validated** — `https://`, `ssh://`, or `git@host:path` only, with a private-address guard (hostnames, literal IPs, and DNS resolution). Known non-EU forges (github.com, gitlab.com, bitbucket.org) produce a data-sovereignty warning; roadbeat policy prefers European or self-hosted remotes.
+- **Vault key** — set `LAYOUTS_KEK` (base64, 32 bytes; falls back to `INTEGRATIONS_KEK`). Required in production; generate with `openssl rand -base64 32`.
+
+### Layout Gallery
+
+Share layouts across organizations through a reviewed, **leak-safe** flow:
+
+<Steps>
+  <Step title="Submit">
+    `POST /api/v1/pro/layout-gallery/submit/:layoutId` — the definition is **sanitized at the door**: org ids, media/asset bindings, and absolute or same-origin asset URLs are stripped, and the removed paths are reported back to you.
+  </Step>
+  <Step title="Review">
+    An **instance super-admin** reviews the submission (`submitted → approved → published`). Publishing re-checks the snapshot for source-organization references and fails closed.
+  </Step>
+  <Step title="Install">
+    Any organization installs a published entry as a **fresh local copy** mapped onto one of its own content types: `POST /api/v1/pro/layout-gallery/:id/install` with `{ "contentTypeId": "article" }`.
+  </Step>
+</Steps>
+
+Cross-org listings never expose the source organization or the raw definition; unreviewed layouts are invisible outside their own org. Download counts and 1–5 star ratings are tracked **per organization with no user identifiers** (privacy by design).
 
 ### Import/Export
 
@@ -95,5 +126,10 @@ All layout builder endpoints are in the [Studio API Reference](https://docs.stud
 | `GET /api/v1/pro/layouts/:id/versions` | Version history |
 | `POST /api/v1/pro/layouts/:id/restore/:version` | Restore version |
 | `POST /api/v1/pro/layouts/:id/duplicate` | Duplicate layout |
-| `GET /api/v1/pro/layouts/:id/export` | Export as JSON |
+| `GET /api/v1/pro/layouts/:id/export` | Export as JSON (sanitized) |
 | `POST /api/v1/pro/layouts/import` | Import from JSON |
+| `GET /api/v1/pro/layout-gallery` | Published gallery entries + own submissions |
+| `POST /api/v1/pro/layout-gallery/submit/:layoutId` | Submit a layout to the gallery |
+| `POST /api/v1/pro/layout-gallery/:id/review` | Approve/reject/publish (super-admin) |
+| `POST /api/v1/pro/layout-gallery/:id/install` | Install as a local copy |
+| `POST /api/v1/pro/layout-gallery/:id/rate` | Rate 1–5 (one rating per org) |

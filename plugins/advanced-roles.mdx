@@ -12,11 +12,13 @@ The **Advanced Roles** plugin replaces CE's three fixed roles (admin/editor/view
 - **Per-content-type permissions** — allow/deny create, read, update, delete, publish, unpublish per content type
 - **Priority-based resolution** — user-specific rules override role-based rules, with fallback to CE defaults
 - **Custom roles** — create roles beyond admin/editor/viewer with arbitrary permission sets
-- **Resource-level permissions** — control access to assets, users, roles, settings, webhooks, locales, API keys
+- **Resource-level permissions** — control access to assets, users, settings, webhooks, locales, API keys — **enforced at runtime**, not just stored
 - **Role duplication** — clone a role with all its permissions
 - **Role comparison** — side-by-side diff of two roles
 - **Permission matrix** — visual overview of who can do what across all content types
-- **Automatic enforcement** — intercepts all content lifecycle events to check permissions
+- **Automatic enforcement** — intercepts content lifecycle events *and* non-content resource mutations to check permissions
+- **Effective-permissions inspector** — run the exact enforcement verdict for any content type + action and see *which rule decided*
+- **Fast resolution** — all of an org's rules load in one cached query, so the matrix stays O(1) regardless of content-type count
 
 ## For Admins: Setting Up Permissions
 
@@ -44,6 +46,37 @@ Navigate to **Content Permissions** in the Settings section to configure per-con
     Optionally override role-based permissions for specific users (e.g., give a viewer publish access for one content type).
   </Step>
 </Steps>
+
+### How Permissions Resolve (Precedence Ladder)
+
+Rules apply from least to most specific — the later a rule applies, the more it counts:
+
+1. **CE role defaults** — the baseline action set for the user's role. Custom roles inherit the defaults of their `base_role` (a role "based on editor" gets editor defaults wherever no explicit rule exists).
+2. **Role rules** — rules targeting the user's role replace the baseline for their content type.
+3. **User rules** — rules targeting the specific user apply last and win.
+
+Within the same specificity, higher `priority` applies later; at equal priority, **allow applies first and deny subtracts afterwards — a deny at equal precedence always wins**. An explicit deny even beats the admin bypass.
+
+<Callout kind="tip">
+  This exact ladder is shown as help text at the top of the **Effective Permissions** inspector, so admins never have to guess why a verdict came out the way it did.
+</Callout>
+
+### Effective Permissions Inspector
+
+Open **Content Permissions → Effective permissions** to debug access questions:
+
+1. Pick a content type and an action (admins can additionally test another role).
+2. The inspector runs the **same shared verdict the runtime enforcement uses** — preview always equals reality.
+3. The result shows an **Allowed / Denied** badge (plus an *Admin bypass* marker when that applied) and a step-by-step evaluation trace: every considered rule in application order, its effect (base / allow / deny), and the resulting action set after each step. The **deciding rule is highlighted**.
+
+### Resource-Level Enforcement
+
+The resource grid in the role editor (assets, users, settings, webhooks, locales, API keys) is enforced at runtime: CE emits a preventable event before every non-content resource mutation, and this plugin blocks the request with **403** when the acting user's grid row does not grant the action.
+
+- **Deny-aware** — an explicit deny row beats even the admin bypass; `manage` is a superset that satisfies any action.
+- **Custom roles** fall back to their `base_role` CE defaults when no explicit grid row exists.
+- **Intent-aware mapping** — e.g. a bulk asset *delete* requires `assets:delete` while a bulk move only needs `assets:update`; user *erase* and API-key *revoke* count as deletes.
+- The **`roles` row is not yet runtime-enforced** (its mutations live inside this admin-guarded plugin) and is flagged with a badge in the editor; `read` cells are likewise not enforced at runtime — a footnote in the grid states both.
 
 ### Custom Roles
 

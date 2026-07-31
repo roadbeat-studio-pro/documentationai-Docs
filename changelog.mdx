@@ -2,6 +2,108 @@
 title: Changelog
 description: Release notes and updates for roadbeat Studio Pro plugins.
 ---
+<Update label="2026-08-01" description="Enterprise & platform — zero-leakage hardening, compliance depth, and feature completion across the enterprise plugins" tags={["feature","security","bugfix"]}>
+  ## Enterprise & Platform Overhaul
+
+  An audit-driven pass over the enterprise/platform plugins
+  (`pro-advanced-roles`, `pro-sso`, `pro-audit`, `pro-environments`,
+  `pro-layouts`, `pro-whitelabel`) plus the shared plugin base: tenancy and
+  security fixes, compliance-grade audit depth, and long-promised features
+  landing for real.
+
+  ### Advanced Roles
+
+  - **Resource permissions are now enforced** — the assets / users / settings /
+    webhooks / locales / API-keys grid in the role editor blocks the
+    corresponding operations at runtime (it was previously stored and rendered
+    but had no effect). Explicit deny beats the admin bypass; custom roles fall
+    back to their base role's defaults.
+  - **Effective-permissions inspector** — run the exact enforcement verdict for
+    any content type + action and see the full evaluation trace with the
+    deciding rule highlighted; the precedence ladder is documented in-product.
+  - **Preview equals enforcement** — `/check`, `/resolve`, and the matrix use
+    the same shared verdict as the event-level enforcement, and permission
+    resolution is served from a per-org cache (O(1) queries regardless of
+    content-type count, busted synchronously on every rule change).
+
+  ### SSO
+
+  - **Certificate lifecycle** — one-URL IdP metadata import (SSRF-guarded),
+    multi-certificate rotation windows (an IdP cert rollover causes zero failed
+    logins), and expiry warnings 30 days ahead, surfaced as badges and audit
+    events.
+  - **SAML validation hardened** — `InResponseTo` consume-once binding,
+    `Conditions`/`Audience`/`Destination` checks, assertion-replay cache, and a
+    signature-wrapping (XSW) guard on top of fail-closed signature verification.
+  - **SCIM tokens hashed & shown once**, with the interop details large IdPs
+    expect (filtering, Entra-style PATCH, SCIM error bodies, discovery).
+
+  ### Audit
+
+  - **Tamper-evident hash chain** — entries link into a per-org SHA-256 chain
+    with an append-only trigger; `GET /pro/audit/verify` reports the first
+    broken link. Retention prunes via anchored checkpoints, so old logs can be
+    deleted without breaking verifiability.
+  - **GDPR erasure** — an erased user's audit rows are pseudonymized in place
+    (stable HMAC pseudonym) and the chain is re-linked.
+  - **Complete, spreadsheet-safe exports** — no silent 10k row cap
+    (`X-Total-Count` carries the real total), CSV formula injection neutralized
+    in both writers, and compliance report types validated before they reach
+    response headers.
+
+  ### Environments
+
+  - **Promote the reference closure** — `includeReferences` promotes referenced
+    entries first and remaps ids in the copied data (cycle-safe, depth-capped);
+    the compare endpoint flags entries whose references are missing on either
+    side.
+  - **Conflict-safe promotion** — target-side edits made after the last
+    promotion fail with 409 unless `force` is passed; forced overwrites are
+    recorded.
+  - **Honest lifecycle** — cloning is one transactional set-based copy with
+    real success/skip counts (the old per-row loop silently failed every insert
+    while reporting zero failures); deleting an environment that aliases point
+    at returns 409 listing them; the unused `webhook_secret` column is gone.
+
+  ### Custom Layouts
+
+  - **Real Git sync** — per-organization config with the access token in an
+    encrypted vault (masked hints only), SSRF-validated repository URLs with
+    EU-sovereignty warnings for US-hosted forges, pulls landing as drafts with
+    per-file results and the real commit hash, and push of sanitized exports.
+    The previous endpoints reported success without touching any repository.
+  - **Leak-safe layout gallery** — submit → super-admin review → publish, with
+    an export sanitizer stripping org-identifying values at submission and a
+    fail-closed re-check at publish; installs create fresh local copies;
+    downloads/ratings are per-org with no user identifiers.
+  - Layout definitions are schema- and size-validated, drafts carry
+    optimistic-concurrency protection, and the exactly-one-default invariant is
+    enforced by the database.
+
+  ### White-Labeling
+
+  - **WCAG 2.1 contrast gate** — themes expose a contrast report; activation
+    warns below 4.5:1 and blocks below 3:1 (stricter with high-contrast mode),
+    with an explicit override flag.
+  - **Brand asset URL policy** — https/same-origin only (`javascript:`/`data:`
+    rejected), sovereignty warnings for external hosts, media-library hints in
+    all 24 locales.
+  - Theme values and custom CSS are strictly sanitized before being served to
+    any browser.
+
+  ### Platform
+
+  - **Plugin credential vault hardened** — org-scoped secret references, KEK
+    rotation, enforced lease TTLs with buffer zeroization; keys fail closed in
+    production.
+  - **Plugin lifecycle contract** — `getPrismaSchemaPath()` returns
+    `undefined` (no more empty-string sentinel), init errors are isolated per
+    plugin, destroy is idempotent, and all 21 plugins log through a named
+    plugin logger.
+  - **AI alt-text in your language** — suggestions are generated in the
+    organization's default content locale and carry a locale tag.
+</Update>
+
 <Update label="2026-08-01" description="Data, integrations & APIs — security hardening, delivery reliability, and feature completion across 8 plugins" tags={["feature","security","bugfix"]}>
   ## Data, Integrations & APIs Overhaul
 

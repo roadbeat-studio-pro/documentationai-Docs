@@ -9,10 +9,12 @@ The **Audit Logging** plugin provides a comprehensive, immutable audit trail for
 
 ## Key Features
 
-- **Immutable audit entries** — every action is logged with user, resource, changes, severity, and category
+- **Immutable, tamper-evident entries** — every action is logged with user, resource, changes, severity, and category, linked into a per-organization SHA-256 hash chain
+- **Chain verification** — one call walks the chain and reports the first broken link, so silent edits or deletions are detectable
 - **Change tracking** — old vs new field values stored as JSONB diffs
 - **Compliance reports** — generate GDPR, user-access, data-changes, permission-changes, and API-access reports
-- **Export** — download audit logs as JSON or CSV for external analysis
+- **Complete exports** — download **all** matching audit logs as JSON or CSV (no silent row cap); CSV cells are guarded against spreadsheet formula injection
+- **GDPR erasure support** — when a user is erased, their audit rows are pseudonymized in place and the chain is re-linked
 - **Retention policies** — configurable auto-cleanup rules (30–3,650 days)
 - **Saved searches** — save and share filter combinations for repeated queries
 - **Analytics dashboard** — breakdowns by action, resource, severity, category, and top users
@@ -25,9 +27,27 @@ The **Audit Logging** plugin provides a comprehensive, immutable audit trail for
 ```bash
 psql -U postgres -d roadbeat_studio -f plugins/pro-audit/migrations/001_create_audit_tables.sql
 psql -U postgres -d roadbeat_studio -f plugins/pro-audit/migrations/002_add_saved_searches.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-audit/migrations/003_add_source.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-audit/migrations/004_tamper_evidence.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-audit/migrations/005_gdpr_scrub.sql
 ```
 
 Tables created: `pro_audit_logs`, `pro_audit_retention_policies`, `pro_audit_saved_searches`
+
+### Tamper Evidence
+
+Every entry carries `prev_hash`/`entry_hash` links in a per-organization hash chain, and an append-only database trigger blocks UPDATE/DELETE outside the two sanctioned paths (retention and GDPR scrub). Verify the chain any time:
+
+```bash
+GET /api/v1/pro/audit/verify
+# → { valid: true } or the first broken link with its position
+```
+
+Retention deletions write a **checkpoint entry** anchoring the hash of the last removed row, so pruning old logs never breaks verifiability. The verification run itself is recorded as an audit entry.
+
+### GDPR Erasure
+
+When CE erases a user (GDPR Art. 17), the plugin **pseudonymizes** that user's audit rows in place — identity fields are replaced with a stable HMAC pseudonym so per-actor analytics still work — and the hash chain is re-linked with a scrub checkpoint recording what happened.
 
 ### Automatic Event Capture
 
@@ -76,6 +96,13 @@ Generate compliance reports from the **Compliance** tab:
 
 Reports can be exported as JSON or CSV.
 
+<Callout kind="info">
+  **Exports are complete and spreadsheet-safe.** The export endpoint pages through
+  *all* matching rows (the response carries the real total in `X-Total-Count`),
+  and CSV cells that start with `=`, `+`, `-`, or `@` are neutralized so stored
+  values can never execute as formulas on an auditor's machine.
+</Callout>
+
 ## For Editors: Viewing Audit Logs
 
 Editors with appropriate permissions can browse the audit log to see:
@@ -99,6 +126,7 @@ All audit endpoints are in the [Studio API Reference](https://docs.studio.roadbe
 | `GET /api/v1/pro/audit/entry/:id` | Get single audit entry |
 | `GET /api/v1/pro/audit/export` | Export logs (JSON/CSV) |
 | `GET /api/v1/pro/audit/stats` | Analytics dashboard data |
+| `GET /api/v1/pro/audit/verify` | Walk the tamper-evidence hash chain |
 | `GET /api/v1/pro/audit/retention` | List retention policies |
 | `POST /api/v1/pro/audit/retention/enforce` | Enforce retention now |
 | `GET /api/v1/pro/audit/searches` | List saved searches |

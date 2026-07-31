@@ -15,8 +15,10 @@ The **White-Labeling** plugin lets you customize Studio's appearance to match yo
 - **Accessibility settings** — configure font sizes, contrast modes, and motion preferences
 - **Theme presets** — seed pre-built theme presets as starting points
 - **Import/Export** — share themes between Studio instances as JSON
-- **CSS generation** — themes generate CSS custom properties for consistent styling
+- **CSS generation** — themes generate CSS custom properties for consistent styling; custom CSS is sanitized before it reaches any browser
 - **Theme duplication** — clone themes to create variations
+- **WCAG contrast gate** — themes report their contrast ratios, and activation blocks combinations below WCAG 2.1 thresholds
+- **Asset URL policy** — brand asset URLs are scheme-gated (https or same-origin only), with sovereignty warnings for external hosts
 
 ## For Admins: Branding Your Studio
 
@@ -24,6 +26,8 @@ The **White-Labeling** plugin lets you customize Studio's appearance to match yo
 
 ```bash
 psql -U postgres -d roadbeat_studio -f plugins/pro-whitelabel/migrations/001_create_whitelabel_tables.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-whitelabel/migrations/002_theme_org_trigger.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-whitelabel/migrations/003_created_by_nullable.sql
 ```
 
 Tables created: `pro_themes`, `pro_branding_config`
@@ -47,6 +51,20 @@ Tables created: `pro_themes`, `pro_branding_config`
   </Step>
 </Steps>
 
+<Callout kind="alert">
+  **Activation is contrast-gated (WCAG 2.1).** Every theme exposes a contrast
+  report over its key color pairs. Activation **warns** below a 4.5:1 ratio and
+  **blocks** below 3:1 (with `highContrast` enabled: warns below 7:1, blocks below
+  4.5:1). Pass `overrideContrast: true` to activate anyway — deliberately, not by
+  accident.
+</Callout>
+
+<Callout kind="info">
+  **Custom CSS is sanitized.** Theme colors must be 6-digit hex values, lengths and
+  font names are strictly validated, and custom CSS is filtered before it is served
+  to any user — `url()`, imports, and script-bearing constructs never pass.
+</Callout>
+
 ### Branding Configuration
 
 Replace default Studio branding:
@@ -54,14 +72,26 @@ Replace default Studio branding:
 ```bash
 PUT /api/v1/pro/whitelabel/branding
 {
-  "appName": "My News CMS",
-  "logoUrl": "https://cdn.example.com/logo.svg",
-  "logoSmallUrl": "https://cdn.example.com/favicon.svg",
-  "faviconUrl": "https://cdn.example.com/favicon.ico",
-  "loginBackground": "https://cdn.example.com/login-bg.jpg",
-  "footerText": "© 2026 My Organization"
+  "appTitle": "My News CMS",
+  "logoUrl": "https://media.example.com/logo.svg",
+  "logoDarkUrl": "https://media.example.com/logo-dark.svg",
+  "faviconUrl": "/api/v1/assets/abc123/serve",
+  "loginBackgroundUrl": "https://media.example.com/login-bg.jpg",
+  "loginLogoUrl": "/assets/login-logo.svg",
+  "footerText": { "en": "© 2026 My Organization" },
+  "hidePoweredBy": true
 }
 ```
+
+<Callout kind="alert">
+  **Brand asset URLs are scheme-gated.** Only `https://` URLs and same-origin
+  paths are accepted — `javascript:`, `data:`, and plain `http:` URLs are rejected
+  with 400, because these assets render in **every** visitor's browser, including
+  the pre-auth login page. External hosts are legal but return a `warnings[]`
+  array naming the host: every visitor's browser will contact it, so the CE media
+  library (or a host listed in `WHITELABEL_ALLOWED_ASSET_HOSTS`) is preferred
+  under roadbeat's no-tracker / EU-sovereignty policy.
+</Callout>
 
 Reset to default Studio branding:
 

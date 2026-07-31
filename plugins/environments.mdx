@@ -11,9 +11,10 @@ The **Environments** plugin lets you manage multiple content environments — de
 
 - **Environment CRUD** — create named environments with slug, color, and sort order
 - **Production flag** — exactly one environment is marked as production (atomic switch)
-- **Content promotion** — promote individual content items between environments
+- **Content promotion** — promote individual content items between environments, optionally **with their reference closure** (referenced entries come along, ids remapped)
+- **Conflict-safe** — promoting over target-side edits made after the last promotion fails with 409 unless you pass `force`
 - **Bulk sync** — sync all content between two environments with content type and status filters
-- **Environment comparison** — diff content between two environments (only_a, only_b, same_version, different_version)
+- **Environment comparison** — diff content between two environments (only_a, only_b, same_version, different_version) including **broken-reference flags** per side
 - **Cloning** — clone an environment with optional content copy
 - **Aliases** — named pointers to environments for zero-downtime switching (e.g., "master" → production)
 - **Sync logs** — track all promote/sync/clone operations
@@ -24,6 +25,8 @@ The **Environments** plugin lets you manage multiple content environments — de
 
 ```bash
 psql -U postgres -d roadbeat_studio -f plugins/pro-environments/migrations/001_create_environment_tables.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-environments/migrations/002_org_match_trigger.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-environments/migrations/003_lifecycle_hardening.sql
 ```
 
 Tables created: `pro_environments`, `pro_environment_aliases`, `pro_environment_content`, `pro_sync_logs`
@@ -47,9 +50,28 @@ POST /api/v1/pro/environments/promote
 {
   "contentId": "uuid",
   "fromEnvironmentId": "staging-id",
-  "toEnvironmentId": "production-id"
+  "toEnvironmentId": "production-id",
+  "includeReferences": true,
+  "maxReferenceDepth": 3
 }
 ```
+
+With `includeReferences`, promotion copies the entry's **reference closure**: entries it references (per the content type's schema-declared reference fields) are promoted first, and reference ids in the copied data are **remapped to the target-environment copies** — a promoted article arrives with a resolvable author instead of a dangling source-environment id. Cycles are handled; `maxReferenceDepth` caps the walk (default 3).
+
+The response reports `cascaded` (referenced entries promoted alongside), `remappedReferences`, and `skippedReferences` (referenced entries left untouched because the target copy has newer edits — only the *root* entry enforces the 409/`force` conflict rule, so one stale author never aborts a whole article promotion).
+
+<Callout kind="alert">
+  **Newer target edits are never silently overwritten.** If the target copy was
+  modified after the last promotion, the promote fails with **409**; re-run with
+  `"force": true` to overwrite deliberately. Forced overwrites are recorded in the
+  sync log.
+</Callout>
+
+<Callout kind="info">
+  New copies in the target environment get a `--<environment-slug>` suffix on their
+  slug (content slugs are unique per organization, not per environment), and sync
+  logs report **real** `items_total` / `items_synced` / `items_failed` counts.
+</Callout>
 
 ### Bulk Sync
 
@@ -77,7 +99,7 @@ POST /api/v1/pro/environments/compare
 }
 ```
 
-Returns categorized content: items only in A, only in B, same version in both, or different versions.
+Returns categorized content: items only in A, only in B, same version in both, or different versions. Each row also carries `brokenRefsA` / `brokenRefsB` — the number of referenced entries **not mapped into the same environment** — so content promoted without its closure is flagged instead of silently mis-rendering in delivery.
 
 ### Cloning
 
@@ -92,6 +114,8 @@ POST /api/v1/pro/environments/:id/clone
   "contentTypeFilter": "news"
 }
 ```
+
+Cloning with `includeContent` runs as **one transactional, set-based copy** — an aborted clone leaves zero orphaned content rows, only the empty environment (which is then removed).
 
 ### Aliases
 
@@ -110,6 +134,12 @@ PUT /api/v1/pro/environments/aliases/:id
 POST /api/v1/pro/environments/aliases/resolve
 { "identifier": "live" }
 ```
+
+<Callout kind="alert">
+  **Deleting an environment that aliases point at fails with 409**, listing the
+  affected aliases. Re-point them first — an alias like `master` is a stable
+  contract consumers depend on, and it must never vanish as a side effect.
+</Callout>
 
 ## For Editors: Working with Environments
 

@@ -15,6 +15,8 @@ The **SSO Integration** plugin connects Studio to your enterprise identity provi
 - **JIT role mapping** — map IdP groups/attributes to Studio roles automatically
 - **Domain enforcement** — require SSO login for specific email domains
 - **Login method detection** — check if a user should use SSO or password-based login
+- **Certificate lifecycle** — one-URL IdP metadata import, multi-certificate rotation windows, and expiry warnings 30 days ahead
+- **Hardened SAML validation** — signature, `InResponseTo`, `Conditions`/`Audience`, assertion-replay and signature-wrapping protection
 
 ## For Admins: Configuration
 
@@ -22,9 +24,11 @@ The **SSO Integration** plugin connects Studio to your enterprise identity provi
 
 ```bash
 psql -U postgres -d roadbeat_studio -f plugins/pro-sso/migrations/001_create_sso_tables.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-sso/migrations/002_hash_scim_tokens.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-sso/migrations/003_create_certificates.sql
 ```
 
-Tables created: `pro_sso_configs`, `pro_sso_role_mappings`
+Tables created: `pro_sso_configs`, `pro_sso_role_mappings`, `pro_sso_certificates`
 
 ### Setting Up SAML 2.0
 
@@ -72,13 +76,27 @@ Tables created: `pro_sso_configs`, `pro_sso_role_mappings`
 
 <Callout kind="alert">
   **SAML assertions are signature-verified (fail-closed).** Every assertion is
-  validated against the IdP `certificate` in your config before its identity is
-  trusted. A configuration **without a valid certificate**, or an assertion whose
-  signature does not verify, is **rejected** — SAML login will not succeed until a
-  correct IdP signing certificate is configured. This closes any path where a
-  forged or unsigned assertion could be accepted, so the `certificate` field is
-  effectively required for SAML.
+  validated against the **active certificate set** before its identity is trusted —
+  an unsigned or forged assertion is rejected. Validation also enforces
+  `InResponseTo` (consume-once request binding), `Conditions`/`Audience`/`Destination`,
+  an assertion-ID replay cache, and a single-assertion guard against
+  signature-wrapping (XSW) attacks.
 </Callout>
+
+### Certificate Lifecycle & Metadata Import
+
+Instead of pasting entity ID, SSO URL, and certificate by hand, import everything from your IdP's metadata document (the fetch is SSRF-guarded — https only, no private targets, no redirects):
+
+```bash
+# One-URL setup / refresh: updates entity id, SSO URL, and the certificate set
+POST /api/v1/pro/sso/config/import-metadata
+
+# Certificate inventory with expiry countdown
+GET /api/v1/pro/sso/config/certificates
+```
+
+- **Rotation windows** — the active set holds *multiple* certificates, so an IdP rollover with old + new certs in metadata causes **zero failed logins**; certificates absent from the metadata are retired, expired ones are never consulted.
+- **Expiry warnings** — a daily sweep refreshes metadata-configured IdPs and emits a `sso.certificate.expiring` event up to 30 days before a certificate expires (recorded by the Audit plugin with warning severity). The frontend shows per-certificate expiry badges next to the metadata URL field.
 
 <Callout kind="info">
   **Secrets are encrypted at rest.** OAuth/OIDC `clientSecret` values are stored
@@ -123,6 +141,14 @@ Generate a SCIM bearer token:
 ```bash
 POST /api/v1/pro/sso/config/regenerate-scim-token
 ```
+
+<Callout kind="info">
+  **SCIM tokens are hashed at rest and shown once.** Copy the token from the
+  response of the regenerate call — it cannot be retrieved later. The SCIM
+  surface implements the interop details large IdPs expect: `userName`/`externalId`
+  filtering, PATCH operations (including Microsoft Entra's path-less value-object
+  form), SCIM-standard error bodies, and the discovery endpoints.
+</Callout>
 
 ### Domain Enforcement
 

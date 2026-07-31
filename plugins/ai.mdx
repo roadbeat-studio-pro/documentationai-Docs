@@ -56,7 +56,7 @@ The gateway exposes a single service surface (`AI_SERVICE`) and a REST API under
 | `translate`                       | Plain text, rich-text, or content-wide batch translation (glossary- and tone-aware)                                     | One-click localize          |
 | `writeAssist`                     | Editor writing actions (see below)                                                                                      | Field actions, assistant    |
 | `generateStructured`              | Schema-grounded drafting validated against a content type's JSON Schema                                                 | Agent, import enrichment    |
-| `vision`                          | Image → alt text, caption, OCR, tags, or description                                                                    | Alt-text on upload          |
+| `vision`                          | Image → alt text, caption, OCR, tags, or description — alt-text suggestions are generated in the **organization's default content locale** and carry a locale tag | Alt-text on upload          |
 | `transcribe`                      | Audio/video → text                                                                                                      | Media workflows             |
 | `classify`                        | Topic/sentiment classification or entity/field extraction                                                               | Moderation, enrichment      |
 | `semanticSearch` / `moreLikeThis` | Rank org content by meaning against the pgvector embedding index (`moreLikeThis` is a pure index lookup — no inference) | Discovery, related content  |
