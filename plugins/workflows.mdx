@@ -14,9 +14,12 @@ The **Editorial Workflows** plugin replaces CE's simple draft/published lifecycl
 ## Key Features
 
 - **Custom workflow definitions** — design workflows with any number of states and transitions
-- **Role-based transitions** — control who can move content between states
-- **Task assignment** — assign review tasks to specific users with due dates
-- **Publish guard** — blocks publishing until content reaches an approved state
+- **Definition versioning** — structural edits create a new version; in-flight content keeps transitioning on the version it started with
+- **Role-based transitions** — `requiredRoles` and `requiresComment` are enforced server-side (403 / 400)
+- **Automatic tasks** — per-state task rules create review tasks on entry (role-based assignment) and cancel them on exit
+- **Due-date SLAs** — overdue tasks trigger reminders to the assignee and escalate to admins
+- **Publish guard** — blocks publishing until content reaches a *final* or explicitly publishable state (works with custom state names)
+- **Concurrency-safe** — two simultaneous transitions can never both win; the loser receives `409 Conflict`
 - **Auto-initialization** — new content automatically enters the workflow's initial state
 - **Workflow builder** — templates, simulation, analysis, import/export
 - **Editor sidebar panel** — shows current workflow state and available actions
@@ -42,9 +45,16 @@ The **Editorial Workflows** plugin replaces CE's simple draft/published lifecycl
       "color": "#F59E0B",
       "isInitial": false,
       "isFinal": false,
-      "requiredRoles": ["editor", "admin"]
+      "allowsPublish": false,
+      "requiredRoles": ["editor", "admin"],
+      "taskRules": [
+        { "type": "review", "title": "Review this article", "assigneeRole": "editor", "dueInHours": 24 }
+      ]
     }
     ```
+
+    - **`isFinal` / `allowsPublish`** — the publish guard allows publishing from any final state or any state flagged `allowsPublish`, regardless of the state's name (`freigegeben` works just as well as `approved`).
+    - **`taskRules`** — tasks created automatically when an instance *enters* this state. `assigneeRole` assigns to the org member with that role who carries the fewest pending tasks; without it, the instance assignee is used. Pending tasks of the exited state are cancelled on transition.
   </Step>
   <Step title="Define transitions">
     Configure which state changes are allowed and who can perform them:
@@ -59,6 +69,10 @@ The **Editorial Workflows** plugin replaces CE's simple draft/published lifecycl
       "requiresComment": false
     }
     ```
+
+    <Callout kind="info">
+      Both gates are enforced by the API: a caller whose role is not in `requiredRoles` receives `403 Forbidden`, and a `requiresComment` transition without a comment receives `400 Bad Request`. Self-approval by unauthorized roles is not possible.
+    </Callout>
   </Step>
   <Step title="Assign to content types">
     Select which content types use this workflow. Multiple content types can share the same workflow definition.
@@ -75,13 +89,37 @@ The Workflow Builder provides advanced tools for creating and managing workflows
 - **Import/Export** — share workflow definitions as JSON files
 - **Duplication** — clone an existing workflow to create variations
 
-### Migration
+### Editing Workflows Safely (Versioning)
+
+Editing a workflow's **states or transitions** creates a new *version* of the definition. In-flight content keeps transitioning on the version it started with, so structural edits can never strand live content in states that no longer exist. Renames, activation toggles, and content-type assignments edit in place.
+
+- **Migrate in-flight instances** to the current version with an explicit state mapping:
+
+  ```bash
+  POST /api/v1/pro/workflows/definitions/:id/migrate-instances
+  { "mapping": { "old_state": "new_state" } }
+  ```
+
+  States that still exist in the current version pass through unmapped; the migration is recorded in each instance's history.
+- **Deleting a definition** is blocked only while *in-flight* (non-final) instances exist — a workflow whose instances all finished can be deleted.
+
+### Task SLAs
+
+Tasks with a due date are swept every 5 minutes:
+
+- A task passing its due date triggers **one** `workflow.task.overdue` event — the assignee receives a localized in-app notification (via the Notifications plugin).
+- A task still pending after `WORKFLOW_ESCALATION_HOURS` (default: 24) past its due date **escalates** to the organization's admins.
+
+### Migrations
 
 ```bash
 psql -U postgres -d roadbeat_studio -f plugins/pro-workflows/migrations/001_create_workflow_tables.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-workflows/migrations/002_add_organization_id_to_instances_and_tasks.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-workflows/migrations/003_create_content_templates.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-workflows/migrations/004_versioning_and_sla.sql
 ```
 
-Tables created: `pro_workflows`, `pro_workflow_instances`, `pro_workflow_tasks`
+Tables created: `pro_workflows`, `pro_workflow_instances`, `pro_workflow_tasks`, `pro_content_templates`, `pro_workflow_versions`
 
 ## For Editors: Using Workflows
 
@@ -135,8 +173,10 @@ All workflow endpoints are documented in the [Studio API Reference](https://docs
 | `GET /api/v1/pro/workflows/definitions` | List workflow definitions |
 | `POST /api/v1/pro/workflows/definitions` | Create a workflow |
 | `POST /api/v1/pro/workflows/definitions/seed` | Seed default workflow |
+| `POST /api/v1/pro/workflows/definitions/:id/migrate-instances` | Migrate in-flight instances to the current version |
 | `GET /api/v1/pro/workflows/instances/:contentId` | Get workflow state for content |
-| `POST /api/v1/pro/workflows/instances/:contentId/transition` | Transition to new state |
+| `POST /api/v1/pro/workflows/instances/:contentId/transition` | Transition to new state (enforces roles/comments; `409` on concurrent transitions) |
+| `POST /api/v1/pro/workflows/instances/:contentId/assign` | Set the responsible assignee for an instance |
 | `GET /api/v1/pro/tasks` | List tasks |
 | `POST /api/v1/pro/tasks/:id/complete` | Complete a task |
 | `POST /api/v1/pro/tasks/:id/assign` | Assign a task |

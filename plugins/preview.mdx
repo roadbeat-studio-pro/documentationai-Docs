@@ -9,24 +9,40 @@ The **Preview API** plugin lets you share draft (unpublished) content with exter
 
 ## Key Features
 
-- **Preview tokens** — scoped to a single content item, content type, or entire organization
+- **Preview tokens** — scoped to a single content item, content type, or entire organization; pass them via header instead of the URL
 - **Draft content access** — fetch unpublished content by ID, slug, or listing
-- **Shareable links** — human-friendly URLs with optional password and max-views limit
-- **Access analytics** — track view counts, unique IPs, and last access time
-- **Token management** — generate, list, revoke, and cleanup expired tokens
-- **Housekeeping** — automatic cleanup of expired tokens and links
+- **Shareable links** — human-friendly URLs with optional password (min. 8 characters) and max-views limit
+- **Field redaction** — strip confidential fields from the preview server-side, per link
+- **Watermark** — configurable confidential-preview watermark for the public page
+- **Reviewer comments** — external reviewers leave feedback on the link, visible to your team
+- **Brute-force protection** — public routes are rate-limited; repeated wrong passwords lock the link temporarily
+- **Privacy-first analytics** — opt-in unique-visitor counting via salted hashes (raw IPs are never stored), auto-purged after a retention window
+- **Housekeeping** — automatic cleanup of expired tokens, links, and visitor data
 
 ## For Admins: Managing Previews
 
 Navigate to **Preview Links** in the Settings section of the sidebar to manage tokens and shareable links.
 
-### Migration
+### Migrations
 
 ```bash
 psql -U postgres -d roadbeat_studio -f plugins/pro-preview/migrations/001_create_preview_tables.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-preview/migrations/002_visitor_privacy.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-preview/migrations/003_reviewer_polish.sql
 ```
 
-Tables created: `pro_preview_tokens`, `pro_shareable_previews`
+Tables created: `pro_preview_tokens`, `pro_shareable_previews`, `pro_preview_comments`
+
+<Callout kind="alert">
+  Migration 002 **wipes all previously collected raw visitor IPs** (GDPR cleanup). From then on, visitor analytics are opt-in per link and store only per-link salted hashes.
+</Callout>
+
+### Visitor Privacy
+
+- Analytics are **off by default** — enable them per link with `trackVisitors: true`.
+- Unique visitors are deduplicated via truncated salted SHA-256 hashes; raw IP addresses are never persisted.
+- Visitor data of links not accessed within `PREVIEW_VISITOR_RETENTION_DAYS` (default: 30) is purged daily.
+- The public access response includes `visitorTracking` so the consuming page can show a data-processing notice.
 
 ### Token Scopes
 
@@ -56,9 +72,11 @@ DELETE /api/v1/pro/preview/housekeeping
     In the content editor, the **Preview** sidebar panel lets you generate a shareable link.
   </Step>
   <Step title="Configure options">
-    - **Password** (optional) — require a password to view
-    - **Max views** (optional) — limit how many times the link can be accessed
+    - **Password** (optional, min. 8 characters) — require a password to view
+    - **Max views** (optional) — limit how many times the link can be accessed (enforced atomically, even under concurrent access)
     - **Expiry** — set when the link becomes invalid
+    - **Redacted fields** (optional) — dot-paths (e.g. `internal_notes`, `author.email`) stripped from the payload server-side; they never reach the reviewer
+    - **Watermark** (optional) — text the public preview page renders as a confidential-preview overlay
   </Step>
   <Step title="Share the link">
     Copy the generated URL and send it to your reviewer. They can view the content without a Studio account.
@@ -70,19 +88,36 @@ DELETE /api/v1/pro/preview/housekeeping
 For frontend frameworks (Next.js, Nuxt, etc.), use preview tokens to fetch draft content:
 
 ```bash
-# Get draft content by ID
-GET /api/v1/pro/preview/content/:id?token=preview_token_here
+# Preferred: pass the token via header (never lands in logs or Referer headers)
+GET /api/v1/pro/preview/content/:id
+X-Preview-Token: preview_token_here
 
 # Get draft content by slug
-GET /api/v1/pro/preview/content/by-slug/:slug?token=preview_token_here&locale=en
+GET /api/v1/pro/preview/content/by-slug/:slug?locale=en
+X-Preview-Token: preview_token_here
 
 # List all draft content available under a token
-GET /api/v1/pro/preview/content?token=preview_token_here&limit=20
+GET /api/v1/pro/preview/content?limit=20
+X-Preview-Token: preview_token_here
 ```
 
 <Callout kind="tip">
-  Preview tokens are ideal for implementing "Preview Mode" in your frontend framework. Pass the token as a query parameter or header to access draft content through your regular rendering pipeline.
+  Preview tokens are ideal for implementing "Preview Mode" in your frontend framework. Pass the token via the `X-Preview-Token` header (or `Authorization: Preview <token>`); the `?token=` query parameter still works but is deprecated — URL-borne secrets end up in logs and `Referer` headers. Preview responses are served with `Referrer-Policy: no-referrer` and `Cache-Control: no-store`.
 </Callout>
+
+## Reviewer Comments
+
+External reviewers can leave feedback directly on a shareable link — no Studio account needed:
+
+```bash
+# Public — the link token (+password, when set) is the credential.
+# Commenting never consumes the link's max-views budget.
+POST /api/v1/pro/preview/shared/:token/comments
+{ "authorName": "External Reviewer", "body": "Second paragraph needs a source.", "password": "if-protected" }
+
+# Authenticated — your team reads the feedback
+GET /api/v1/pro/preview/shared/links/:id/comments
+```
 
 ## API Reference
 

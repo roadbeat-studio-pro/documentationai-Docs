@@ -9,23 +9,45 @@ The **Notifications** plugin provides a full notification system for Studio — 
 
 ## Key Features
 
-- **In-app notifications** — triggered automatically on content publish, update, delete, and new comments
-- **External channels** — Slack, Microsoft Teams, Discord, and generic webhook integrations
-- **Per-user preferences** — digest frequency, do-not-disturb, per-type overrides, muting
+- **In-app notifications** — triggered automatically on content publish/update/delete, comments, workflow transitions and task assignments, lock takeovers, and scheduling failures
+- **Localized** — notifications carry message keys and render in each recipient's interface language (all 24 EU locales)
+- **External channels** — Slack, Microsoft Teams, Discord, and generic webhook integrations, with SSRF-guarded targets and an explicit EU data-transfer acknowledgement for non-EU services
+- **Per-user preferences** — digest frequency, do-not-disturb, per-type overrides, muting — all enforced on delivery
+- **Digest delivery** — hourly/daily/weekly digests batch notifications instead of sending realtime; DND defers (never drops)
 - **Notification management** — mark read, archive, delete, mark all read, delete all read
 - **Channel management** — create, test, update, delete notification channels
 - **Analytics** — notification statistics and overview
-- **Housekeeping** — cleanup old notifications by age
+- **Automatic retention** — notifications are purged after a configurable window (GDPR data minimization)
 
 ## For Admins: Configuration
 
-### Migration
+### Migrations
 
 ```bash
 psql -U postgres -d roadbeat_studio -f plugins/pro-notifications/migrations/001_create_notification_tables.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-notifications/migrations/002_add_data_transfer_ack.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-notifications/migrations/003_add_digest_support.sql
 ```
 
 Tables created: `pro_notifications`, `pro_notification_channels`, `pro_notification_preferences`
+
+<Callout kind="alert">
+  Migration 002 **disables existing Slack/Teams/Discord channels** until an admin re-enables them with the EU data-transfer acknowledgement (`dataTransferAck: true`). Notification content (titles, comment excerpts) leaving the EU requires a documented transfer basis.
+</Callout>
+
+### Retention
+
+A nightly job purges notifications older than `NOTIFICATIONS_RETENTION_DAYS` (default: 90) per organization. The manual endpoint remains available:
+
+```bash
+POST /api/v1/pro/notifications/housekeeping?days=30
+```
+
+### Channel Security & GDPR
+
+- **Webhook targets are validated** on create/update *and* at send time: HTTPS only, no embedded credentials, private/loopback/link-local/cloud-metadata addresses rejected, and Slack/Teams/Discord channels must point at their official webhook domains.
+- **Non-EU channel types** (Slack, Teams, Discord) require an explicit `dataTransferAck` to be created, enabled, or sent to.
+- **Outbound payloads are minimized** — prose is truncated and only content references (ids) are passed through, never the free-form data blob.
 
 ### Setting Up External Channels
 
@@ -57,13 +79,9 @@ Tables created: `pro_notifications`, `pro_notification_channels`, `pro_notificat
   </Tab>
 </Tabs>
 
-### Housekeeping
-
-Clean up old notifications:
-
-```bash
-POST /api/v1/pro/notifications/housekeeping?days=30
-```
+<Callout kind="info">
+  Generic webhook targets must be **public HTTPS endpoints** — internal/private addresses are rejected. For Slack, Teams, and Discord, tick the **EU data-transfer acknowledgement** when creating the channel; without it the channel cannot be enabled.
+</Callout>
 
 ## For Editors: Managing Notifications
 
@@ -85,21 +103,29 @@ Navigate to **Notifications** in the sidebar or click the bell icon in the heade
 
 ### Notification Preferences
 
-Configure your personal notification preferences:
+Configure your personal notification preferences — every setting is enforced when a notification is delivered:
 
 ```bash
 GET /api/v1/pro/notifications/preferences/me
 PUT /api/v1/pro/notifications/preferences/me
 {
+  "inAppEnabled": true,
   "digestFrequency": "daily",
-  "doNotDisturb": false,
+  "dndEnabled": true,
+  "dndStart": "22:00",
+  "dndEnd": "07:00",
   "typeOverrides": {
-    "content.published": { "enabled": true, "channels": ["in-app", "slack"] },
-    "content.updated": { "enabled": false },
-    "comment.created": { "enabled": true, "channels": ["in-app"] }
-  }
+    "content_published": { "inApp": true },
+    "content_updated": { "inApp": false }
+  },
+  "mutedContentIds": ["uuid-of-noisy-item"],
+  "mutedContentTypes": ["news"]
 }
 ```
+
+- **`digestFrequency`** — `realtime` (default), `hourly`, `daily`, or `weekly`. Digest users receive their notifications released in a batch once per window instead of one by one.
+- **`dndEnabled` + `dndStart`/`dndEnd`** — during the do-not-disturb window (may wrap midnight) notifications are *deferred*, not dropped; they arrive when the window ends.
+- **`mutedContentIds` / `mutedContentTypes`** — suppress notifications for specific items or whole content types.
 
 ## API Reference
 

@@ -9,32 +9,44 @@ The **Content Locking** plugin prevents concurrent editing conflicts by allowing
 
 ## Key Features
 
-- **Exclusive locks** — blocks other users from saving (default)
+- **Exclusive locks** — blocks other users from saving, deleting, or publishing (default)
 - **Advisory locks** — warns other users but doesn't block (for soft collaboration)
-- **Auto-expiring** — locks expire after 5 minutes without a heartbeat
+- **Auto-expiring** — locks expire after a configurable TTL (default 5 minutes) without a heartbeat
+- **Instant release on tab close** — a `sendBeacon` release frees the lock within seconds instead of waiting out the TTL
 - **Heartbeat extension** — the editor sidebar automatically extends the lock every 2 minutes
-- **Force-unlock** — admins can break any lock
-- **Lock management** — view all active locks across the organization
+- **Polite takeover** — blocked editors can *request access*; the holder gets a notification
+- **Force-unlock** — same-organization admins can break any lock; the action is audited and the displaced editor is notified
+- **Lock management** — view all active locks and the audit trail across the organization
+- **Localized messages** — lock banners use structured codes translated into all 24 EU locales
 
 ## For Admins: Configuration
 
-### Migration
+### Migrations
 
 ```bash
 psql -U postgres -d roadbeat_studio -f plugins/pro-locking/migrations/001_create_content_locks_table.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-locking/migrations/002_add_organization_id.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-locking/migrations/003_takeover_and_beacon.sql
 ```
 
-Table created: `pro_content_locks`
+Tables created: `pro_content_locks`, `pro_lock_audit`
+
+### Configuration
+
+| Environment variable | Default | Description |
+|----------------------|---------|-------------|
+| `LOCK_TTL_SECONDS` | `300` | Lock lifetime without a heartbeat; surfaced via the API so UI expiry hints stay accurate |
 
 ### Managing Locks
 
 Navigate to **Content Locks** in the sidebar to view all active locks. From here you can:
 
 - See who holds each lock and when it was acquired
-- **Force-unlock** any content item if a lock is stuck or a user is unavailable
+- **Force-unlock** any content item if a lock is stuck or a user is unavailable (admins only)
+- Review the **audit trail** (`GET /api/v1/pro/locking/audit`) — every force-unlock and takeover request is recorded with actor and previous holder
 
 <Callout kind="alert">
-  Force-unlocking may cause the locked user to lose unsaved changes. Use with caution — coordinate with the lock holder when possible.
+  Force-unlocking may cause the locked user to lose unsaved changes. The displaced editor is notified immediately that saving may now conflict — but coordinate with the lock holder when possible.
 </Callout>
 
 ## For Editors: Working with Locks
@@ -46,7 +58,7 @@ When you open a content item in the editor, the **Lock** sidebar panel automatic
 1. Acquires an exclusive lock on the content
 2. Shows the lock status (locked by you)
 3. Sends heartbeat pings every 2 minutes to keep the lock alive
-4. Releases the lock when you navigate away
+4. Releases the lock when you navigate away — **including on tab or browser close**, via a `sendBeacon` call, so teammates are unblocked within seconds instead of after the TTL
 
 ### If Content Is Locked by Someone Else
 
@@ -56,7 +68,7 @@ If another user holds the lock, you'll see:
 - **When** it was acquired
 - The content opens in **read-only mode** — you cannot save changes
 
-Wait for the other user to finish editing, or ask an admin to force-unlock.
+You can click **Request access** to send the current holder a polite takeover notification, wait for them to finish, or ask an admin to force-unlock.
 
 ### Lock Types
 
@@ -67,7 +79,7 @@ Wait for the other user to finish editing, or ask an admin to force-unlock.
 
 ## Event Integration
 
-The plugin registers a `content.beforeUpdate` event handler at priority 10. When another user tries to save content that has an exclusive lock held by someone else, the event is **prevented** and CE throws a `ForbiddenException`.
+The plugin guards `content.beforeUpdate`, `content.beforeDelete`, and `content.beforePublish`. When another user tries to save, delete, or publish content that has an exclusive lock held by someone else, the event is **prevented** and CE throws a `ForbiddenException` — a lock that didn't survive a delete or publish would be a false safety promise. Advisory locks stay warn-only.
 
 ## API Reference
 
@@ -79,5 +91,8 @@ All locking endpoints are in the [Studio API Reference](https://docs.studio.road
 | `DELETE /api/v1/pro/locking/content/:id/lock` | Release a lock (owner only) |
 | `POST /api/v1/pro/locking/content/:id/lock/extend` | Heartbeat extend |
 | `GET /api/v1/pro/locking/content/:id/lock` | Check lock status |
-| `POST /api/v1/pro/locking/content/:id/lock/force` | Force-unlock (admin) |
-| `GET /api/v1/pro/locking/locks` | List all active locks |
+| `POST /api/v1/pro/locking/content/:id/lock/force` | Force-unlock (same-org admin only; audited) |
+| `POST /api/v1/pro/locking/content/:id/lock/request` | Request the lock from its holder (polite takeover) |
+| `POST /api/v1/pro/locking/content/:id/lock/release-beacon` | Beacon release on tab close (release-token credential) |
+| `GET /api/v1/pro/locking/locks` | List all active locks (+ configured TTL) |
+| `GET /api/v1/pro/locking/audit` | Lock audit trail (admin only) |

@@ -9,24 +9,32 @@ The **Saved Views** plugin lets editors persist their most-used content list con
 
 ## Key Features
 
-- **Persist filter combinations** — save any content list state (content type, status, locale, sort, search, view mode, page size) as a named view
+- **Persist filter combinations** — save any content list state (content type, status, locale, sort, search, view mode, page size) as a named view; configurations are validated on save
 - **Quick recall** — switch between saved views with a single click
-- **Shared views** — share useful views with all organization members
+- **Default view** — mark a view as your personal default so the content list opens with it
+- **Shared views** — share views with the whole organization or only with a specific role
 - **Pin favorites** — pin frequently used views to the quick-access bar
-- **Drag-and-drop reorder** — reorder pinned views via drag-and-drop
-- **Usage tracking** — views track usage count and last-used timestamp
+- **Drag-and-drop reorder** — reorder pinned views (all-or-nothing; a failed reorder never leaves the bar half-applied)
+- **Per-user usage tracking** — accurate usage counts even on shared views
 - **Duplicate views** — clone an existing view as a starting point for a new one
 - **Icon and color customization** — assign a custom icon and color to each view for quick identification
 
 ## For Admins: Setup
 
-### Migration
-
-Apply the database migration to create the `pro_saved_views` table:
+### Migrations
 
 ```bash
 psql -U postgres -d roadbeat_studio -f plugins/pro-saved-views/migrations/001_create_saved_views.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-saved-views/migrations/002_add_user_fk.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-saved-views/migrations/003_add_share_scope.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-saved-views/migrations/004_user_state.sql
 ```
+
+Tables created: `pro_saved_views`, `pro_saved_view_user_state`
+
+<Callout kind="info">
+  Deleting a user also deletes their saved views (including shared ones) — duplicate a shared view worth keeping before offboarding its owner.
+</Callout>
 
 ### Building the Frontend
 
@@ -84,9 +92,17 @@ The plugin includes an Angular Elements frontend that must be built before the U
     - **Page Size** — 25, 50, or 100 items per page
     - **Filters** — content type, status, locale, and search query
     - **Icon and Color** — visual customization for quick identification
-    - **Shared** — toggle to make the view available to all organization members
+    - **Shared** — toggle to make the view available to others. The share scope is either the **whole organization** (default) or **only users with a specific role** (e.g. share an editorial triage view with editors only).
   </Step>
 </Steps>
+
+<Callout kind="alert">
+  Sharing exposes the view's **filters and saved search text** to the selected audience — the editor shows a notice when you enable sharing.
+</Callout>
+
+### Default View
+
+Mark any view you can see (own or shared) as your personal default — the content list then opens with it automatically. Each user has at most one default; setting a new one replaces the previous choice atomically.
 
 ### Managing Views
 
@@ -136,4 +152,7 @@ Each saved view stores the following settings:
 | `DELETE /api/v1/pro/saved-views/:id` | Delete a saved view |
 | `POST /api/v1/pro/saved-views/:id/duplicate` | Duplicate a saved view |
 | `PATCH /api/v1/pro/saved-views/:id/pin` | Pin or unpin a saved view |
-| `POST /api/v1/pro/saved-views/reorder` | Reorder pinned views |
+| `POST /api/v1/pro/saved-views/reorder` | Reorder pinned views (atomic) |
+| `GET /api/v1/pro/saved-views/default` | Get your default view |
+| `POST /api/v1/pro/saved-views/:id/default` | Set a view as your default |
+| `DELETE /api/v1/pro/saved-views/default` | Clear your default view |

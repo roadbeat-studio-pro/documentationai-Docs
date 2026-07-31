@@ -9,13 +9,15 @@ The **Real-time** plugin adds WebSocket-based live collaboration to Studio. See 
 
 ## Key Features
 
-- **WebSocket gateway** — Socket.IO at `/ws` with JWT authentication via handshake token
-- **Editing presence** — see who is currently editing each content item
-- **Cursor sharing** — share cursor positions in the content editor
+- **WebSocket gateway** — Socket.IO at `/ws`; handshake JWTs are **cryptographically verified** against Studio's signing secrets (rotation-aware), and only your configured `CORS_ORIGINS` may connect
+- **Multi-instance broadcasts** — a Socket.IO Redis adapter fans room events out across all API replicas
+- **Editing presence** — see who is currently editing each content item, org-isolated, with precise cleanup (no ghost editors from closed tabs)
+- **Cursor sharing & typing indicators** — share cursor positions and typing status in the content editor
+- **Flood protection** — cursor/typing messages are validated and rate-limited per socket (20/s); content rooms cap at 50 collaborators
 - **Event broadcasting** — content updates, publishes, deletes, and comments broadcast to all connected users
 - **Direct notifications** — send notifications to specific users via WebSocket
 - **Connection management** — admin API for monitoring connections, presence, and disconnecting users
-- **No database tables** — all state is in-memory (connections, presence, cursors)
+- **No database tables** — connection/presence state is in-memory per instance (broadcasts cross instances via Redis)
 
 ## For Admins: Configuration
 
@@ -30,6 +32,20 @@ This plugin requires additional npm packages on the CE side:
 ```
 
 These are included in the Pro Docker image by default.
+
+### Multi-Instance Deployments
+
+When Studio runs on more than one API instance, room broadcasts are fanned out via a **Socket.IO Redis adapter** using Studio's existing Redis configuration (`REDIS_URL` or the discrete host/port variables). It attaches automatically; set `REALTIME_REDIS_ADAPTER=false` to opt out.
+
+<Callout kind="info">
+  Presence **lists** (who is in which room) remain per-instance — join/leave/cursor events reach every instance via the adapter, but `presence:request` and the REST presence endpoints reflect users connected to the answering instance.
+</Callout>
+
+### Security & Abuse Controls
+
+- Handshake tokens are verified against `JWT_SECRET_CURRENT` / `JWT_SECRET_PREVIOUS` (the same dual-secret rotation as the HTTP API); forged, tampered, or expired tokens are disconnected before joining any room.
+- WebSocket CORS uses the same `CORS_ORIGINS` allow-list as the HTTP API — no wildcard origins.
+- Cursor and typing messages are schema-validated and throttled per socket; excess messages are dropped server-side.
 
 ### Monitoring
 
@@ -84,6 +100,7 @@ The plugin broadcasts these events to connected clients:
 | `user:joined` | `content:<contentId>` | User entered content room |
 | `user:left` | `content:<contentId>` | User left content room |
 | `cursor:update` | `content:<contentId>` | Cursor position changed |
+| `typing:update` | `content:<contentId>` | A collaborator started/stopped typing |
 
 ### Client Events
 
@@ -91,10 +108,11 @@ Clients can send these events:
 
 | Event | Description |
 |-------|-------------|
-| `join:content` | Enter a content editing room |
+| `join:content` | Enter a content editing room (org ownership verified; rooms cap at 50) |
 | `leave:content` | Leave a content editing room |
-| `cursor:move` | Update cursor position |
-| `presence:request` | Request current presence list |
+| `cursor:move` | Update cursor position (validated, rate-limited) |
+| `typing:start` / `typing:stop` | Signal typing status (room members only) |
+| `presence:request` | Request current presence list (own organization only) |
 
 ## API Reference
 

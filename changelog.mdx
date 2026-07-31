@@ -2,6 +2,97 @@
 title: Changelog
 description: Release notes and updates for roadbeat Studio Pro plugins.
 ---
+<Update label="2026-07-31" description="Editorial & collaboration suite — tenancy hardening, reliability, and feature completion across 8 plugins" tags={["feature","security","bugfix"]}>
+  ## Editorial & Collaboration Suite Overhaul
+
+  A full audit-driven pass over the eight editorial/collaboration plugins
+  (`pro-workflows`, `pro-scheduling`, `pro-locking`, `pro-versioning`,
+  `pro-realtime`, `pro-notifications`, `pro-saved-views`, `pro-preview`):
+  multi-tenancy and transport-security fixes, correctness under concurrency,
+  crash recovery, and a wave of feature completion.
+
+  ### Security & multi-tenancy
+
+  - **Zero-leakage enforcement everywhere** — workflow instances/tasks,
+    scheduled actions, releases, and locks are strictly organization-scoped;
+    content ownership is verified before any schedule, lock, or workflow is
+    attached. Cross-tenant reads, cancels, and lock-DoS are no longer possible.
+  - **WebSocket handshakes are now cryptographically verified** against
+    Studio's JWT secrets (rotation-aware) and restricted to your
+    `CORS_ORIGINS`; presence is org-isolated.
+  - **SQL injection fixed** in the notifications plugin (list filter,
+    preference and channel updates, housekeeping) — all raw SQL is
+    parameterized.
+  - **Channel webhook egress hardened** — HTTPS-only, official-domain
+    allow-lists for Slack/Teams/Discord, private/metadata addresses rejected;
+    non-EU channels require an explicit **EU data-transfer acknowledgement**
+    (existing Slack/Teams/Discord channels are disabled until re-acknowledged).
+  - **Preview privacy** — raw visitor IPs are no longer stored (existing data
+    wiped); analytics are opt-in per link via salted hashes with a retention
+    window. Public preview routes are rate-limited with password lockout;
+    tokens move to headers; timing-safe password verification.
+  - **Data minimization** — lock payloads no longer expose user emails;
+    version author lookups return names only.
+
+  ### Reliability & correctness
+
+  - **Workflow transitions are concurrency-safe** (racing transitions →
+    `409 Conflict`, history appended in SQL) and enforce `requiredRoles` /
+    `requiresComment` server-side; the publish guard now works with
+    custom-named states via `isFinal` / `allowsPublish`.
+  - **Scheduling survives crashes** — stale claims from dead replicas are
+    reaped and retried with backoff (`SCHEDULING_MAX_ATTEMPTS`); terminal
+    failures notify the creator; failed releases can be retried
+    (only failed items re-run). Release scheduling/publishing is
+    **preflight-validated** (existence, org, workflow approval, conflicts).
+  - **Lock acquisition is race-proof** (conditional takeover in SQL) and locks
+    release **within seconds of a tab close** via `sendBeacon`; the lock guard
+    now also blocks delete and publish of foreign-locked content.
+  - **Preview max-views is enforced atomically** — concurrent access can no
+    longer exceed the limit.
+  - Route-ordering fixes: `DELETE /pro/notifications/read` and
+    `DELETE /pro/preview/tokens/cleanup` no longer shadowed by `:id` routes.
+
+  ### New features
+
+  - **Workflow definition versioning** — structural edits create a new
+    version; in-flight content stays pinned to its version, with an explicit
+    instance-migration endpoint. Per-state **task rules** auto-create review
+    tasks (least-loaded role assignment, SLA due dates), and overdue tasks
+    remind assignees / escalate to admins.
+  - **Recurring schedules** — daily/weekly/monthly publish/unpublish rules
+    (RFC 5545 subset) firing at DST-correct local wall-clock times.
+  - **Version retention & GDPR redaction** — per-org keep-last/max-age
+    pruning, and field-level erasure across *all* historical versions with an
+    audit trail. Diffs are now **path-addressed** (`title.de`, not JSON blobs)
+    with ordered LCS word-level highlights; version lists are paginated with
+    author names; the restore dialog previews exactly what would change.
+  - **Notifications went multilingual** — message keys render in each
+    recipient's locale (24 EU languages); preferences (per-type, mute, DND)
+    are actually enforced; hourly/daily/weekly **digests** batch delivery and
+    DND defers instead of dropping; automatic retention purge; external
+    channels now really fire on events.
+  - **Lock takeover flow** — blocked editors request access, holders are
+    notified, force-unlocks are audited (`GET /pro/locking/audit`); lock TTL
+    is configurable (`LOCK_TTL_SECONDS`) and lock messages are localized.
+  - **Multi-instance realtime** — Socket.IO Redis adapter fans broadcasts
+    across replicas; typing indicators; precise presence cleanup (no more
+    ghost editors); cursor flood protection.
+  - **Saved views** — role-scoped sharing, config validation, atomic pin
+    reordering, per-user **default view**, and accurate per-user usage stats.
+  - **Reviewer-ready previews** — per-link field redaction (server-side),
+    configurable watermark, and external **reviewer comments** tied to the
+    link.
+
+  ### Upgrade notes
+
+  - Apply the new migrations for all eight plugins (see each plugin page).
+  - Existing Slack/Teams/Discord notification channels are **disabled** until
+    re-enabled with `dataTransferAck: true`.
+  - Previously collected raw visitor IPs on preview links are **deleted** by
+    the preview migration.
+</Update>
+
 <Update label="2026-07-30" description="pro-ai v1.0.0 — content intelligence, sovereignty transparency & cost resilience" tags={["feature","security"]}>
   ## AI Assistant & Provider Gateway v1.0.0
 

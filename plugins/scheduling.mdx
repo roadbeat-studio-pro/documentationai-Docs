@@ -10,24 +10,41 @@ The **Content Scheduling** plugin lets you schedule content to be published, unp
 ## Key Features
 
 - **Scheduled actions** — publish, unpublish, or archive content at a specific date/time
+- **Recurring schedules** — repeat publish/unpublish on a daily/weekly/monthly rule (DST-correct wall-clock times)
 - **Timezone-aware** — all schedules support IANA timezone identifiers
 - **Bulk scheduling** — schedule multiple content items at once
-- **Releases** — group content items for coordinated, ordered publishing
+- **Releases** — group content items for coordinated, ordered publishing, with preflight validation and partial-failure retry
 - **Calendar view** — visual overview of all scheduled actions in a date range
-- **Background processor** — polls every 30 seconds for due actions
-- **Auto-cleanup** — cancels pending actions when content is deleted
+- **Reliable by design** — distributed-safe claiming, bounded retries with backoff, and crash recovery: a deploy at the wrong moment cannot silently drop a publish window
+- **Failure notifications** — terminally failed actions/releases notify their creator (via the Notifications plugin)
+- **Auto-cleanup** — cancels pending actions when content is deleted, and warns when deletion would shrink a draft/scheduled release
 
 ## For Admins: Configuration
 
-### Migration
+### Migrations
 
 ```bash
 psql -U postgres -d roadbeat_studio -f plugins/pro-scheduling/migrations/001_create_scheduling_tables.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-scheduling/migrations/002_add_organization_id.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-scheduling/migrations/003_add_organization_id_to_release_items.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-scheduling/migrations/004_add_processing_status.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-scheduling/migrations/005_add_attempts_for_retry.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-scheduling/migrations/006_recurring_schedules.sql
 ```
 
-Tables created: `pro_scheduled_actions`, `pro_releases`, `pro_release_items`
+Tables created: `pro_scheduled_actions`, `pro_releases`, `pro_release_items`, `pro_recurring_schedules`
 
-No additional configuration is needed. The background processor starts automatically when the plugin loads and polls for due actions every 30 seconds.
+No additional configuration is needed. The background processor starts automatically when the plugin loads and polls for due work every 30 seconds.
+
+### Reliability Tuning
+
+| Environment variable | Default | Description |
+|----------------------|---------|-------------|
+| `SCHEDULING_BATCH_SIZE` | `50` | Actions claimed per poller batch |
+| `SCHEDULING_MAX_ATTEMPTS` | `3` | Execution attempts before an action/release fails terminally |
+| `SCHEDULING_STALE_MINUTES` | `5` | Minutes after which a claim from a crashed replica is recovered |
+
+Transient failures (a database or network blip) are retried with backoff instead of failing on the first error. Claims left behind by a crashed or redeployed replica are reset for re-execution by a reaper on every poller tick — or failed *visibly* once the attempt cap is reached, at which point the creator is notified.
 
 ## For Editors: Scheduling Content
 
@@ -104,10 +121,53 @@ POST /api/v1/pro/releases
 }
 ```
 
+### Preflight Validation
+
+Releases exist to make launch windows dependable, so both scheduling and publishing are **preflight-checked**:
+
+```bash
+GET /api/v1/pro/releases/:id/validate
+```
+
+Returns per-item readiness: the content exists in your organization, its workflow state allows publishing (when the Workflows plugin is active), and no conflicting pending action targets the same content. An **empty** release can never be scheduled or published; unready items block with `400` unless you pass `force=true` (in the schedule body or as `?force=true` on publish).
+
+Deleting content that is part of a draft or scheduled release emits a `release.items_removed` warning so release owners can react before the launch window.
+
 ### Publishing a Release
 
-- **Immediate**: `POST /api/v1/pro/releases/:id/publish` — executes all items in sort order immediately
-- **Scheduled**: `POST /api/v1/pro/releases/:id/schedule` — schedule for a future date
+- **Immediate**: `POST /api/v1/pro/releases/:id/publish` — preflight-checked, then executes all items in sort order
+- **Scheduled**: `POST /api/v1/pro/releases/:id/schedule` — preflight-checked, then scheduled for a future date
+- **Retry**: `POST /api/v1/pro/releases/:id/retry` — after a partial failure, re-executes **only** the failed items and merges the results; succeeded items are never re-run
+
+## Recurring Schedules
+
+Repeat a publish or unpublish on a schedule — weekly menus, monthly report windows, event content:
+
+```bash
+POST /api/v1/pro/scheduling/recurring
+{
+  "contentId": "uuid-1",
+  "action": "publish",
+  "rrule": "FREQ=WEEKLY;BYDAY=MO,TH",
+  "localTime": "09:00",
+  "timezone": "Europe/Berlin"
+}
+```
+
+The rule syntax is an RFC 5545 subset: `FREQ=DAILY|WEEKLY|MONTHLY`, optional `INTERVAL=n` (cadence, e.g. every 2nd week), `BYDAY=MO,…` (weekly) and `BYMONTHDAY=n` (monthly).
+
+<Callout kind="tip">
+  Occurrences fire at the **wall-clock** `localTime` in the schedule's IANA timezone — a weekly 09:00 Europe/Berlin publish stays at 09:00 local across DST transitions.
+</Callout>
+
+| Endpoint | Description |
+|----------|-------------|
+| `POST /api/v1/pro/scheduling/recurring` | Create a recurring schedule |
+| `GET /api/v1/pro/scheduling/recurring` | List recurring schedules |
+| `GET /api/v1/pro/scheduling/content/:contentId/recurring` | Recurring schedules for one content item |
+| `GET /api/v1/pro/scheduling/recurring/:id/preview` | Preview the next occurrences |
+| `POST /api/v1/pro/scheduling/recurring/:id/active` | Pause / resume (resuming re-arms the next occurrence) |
+| `DELETE /api/v1/pro/scheduling/recurring/:id` | Delete a recurring schedule |
 
 ### Calendar View
 

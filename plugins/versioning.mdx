@@ -10,11 +10,13 @@ The **Version Comparison** plugin enhances CE's version history with rich side-b
 ## Key Features
 
 - **Side-by-side comparison** — compare any two versions with field-level diffs
-- **Diff types** — added, removed, changed, unchanged fields sorted by relevance
-- **Word-level text diffs** — highlights individual word changes with Jaccard similarity scoring
-- **Enriched version list** — shows field count and change count per version
+- **Path-addressed nested diffs** — a change inside a rich structure shows up as `title.de` or `body.blocks[id=x].text`, not as a JSON blob
+- **Ordered word-level text diffs** — positionally correct insert/delete runs (LCS-based); reordered sentences and repeated words diff correctly
+- **Paginated version list** — bounded pages with per-version change counts and **author names**
 - **One-click diff** — compare any version against its predecessor
-- **No additional tables** — uses CE's existing `content_versions` table
+- **Restore preview** — the restore dialog lists exactly which field paths restoring would change
+- **Retention policies** — keep-last-N / max-age pruning per organization, published snapshots preserved
+- **GDPR redaction** — erase a field's value from *every* historical version, audited
 
 ## For Editors: Comparing Versions
 
@@ -43,9 +45,37 @@ The **Version Comparison** plugin enhances CE's version history with rich side-b
 
 For any version, click **Compare with Previous** to see what changed from the version before it — no need to manually select two versions.
 
-## For Admins: Setup
+## For Admins: Retention & GDPR Erasure
 
-No migration required — this plugin uses CE's existing `content_versions` table. Simply enable the plugin via your license key.
+Version storage lives in CE's `content_versions` table; the Pro plugin adds retention and erasure controls on top.
+
+### Retention Policy
+
+```bash
+PUT /api/v1/pro/versioning/retention   # admin only
+{ "keepLast": 10, "keepPublished": true, "maxAgeDays": 365 }
+```
+
+A daily job prunes versions beyond the policy. The **newest version of each content item is never pruned**, and versions with status `published` survive while `keepPublished` is set.
+
+### Redacting a Field Across All Versions
+
+Personal data removed from the current version lives on in historical rows — a GDPR Art. 17 gap the redaction action closes:
+
+```bash
+POST /api/v1/pro/versioning/content/:contentId/redact   # admin only
+{ "fieldPath": "author.email" }
+```
+
+The field is rewritten to a `[redacted]` tombstone in **every** version of that content item. Each redaction is recorded in an audit trail (`GET /api/v1/pro/versioning/redactions`) with actor and the number of versions touched.
+
+### Migration
+
+```bash
+psql -U postgres -d roadbeat_studio -f plugins/pro-versioning/migrations/001_retention_and_redaction.sql
+```
+
+Tables created: `pro_version_retention_policies`, `pro_version_redactions`
 
 ## API Reference
 
@@ -53,6 +83,9 @@ All versioning endpoints are in the [Studio API Reference](https://docs.studio.r
 
 | Endpoint | Description |
 |----------|-------------|
-| `GET /api/v1/pro/versioning/content/:contentId/versions` | Enriched version list |
-| `GET /api/v1/pro/versioning/content/:contentId/compare?left=N&right=M` | Side-by-side comparison |
+| `GET /api/v1/pro/versioning/content/:contentId/versions?limit=50&offset=0` | Paginated version list with change counts and author names |
+| `GET /api/v1/pro/versioning/content/:contentId/compare?left=N&right=M` | Side-by-side comparison (path-addressed diff + ordered word diff) |
 | `GET /api/v1/pro/versioning/content/:contentId/versions/:version/diff` | Diff with previous version |
+| `GET` / `PUT /api/v1/pro/versioning/retention` | Read / set the org retention policy (PUT: admin) |
+| `POST /api/v1/pro/versioning/content/:contentId/redact` | Redact a field path across all versions (admin, audited) |
+| `GET /api/v1/pro/versioning/redactions` | Redaction audit trail (admin) |
