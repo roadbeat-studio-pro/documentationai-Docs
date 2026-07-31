@@ -1,33 +1,47 @@
 ---
 title: Content Import
-description: Import content from CSV and JSON files with field mapping, validation, duplicate detection, preview, and rollback.
+description: Import content from JSON, CSV, XML, WordPress WXR, and Markdown with schema validation, field mapping, preview, and rollback.
 ---
 
 ## Overview
 
-The **Content Import** plugin lets you bulk-import content from external sources in CSV or JSON format. Map source fields to content type fields, preview the import before committing, detect duplicates, and roll back if something goes wrong.
+The **Content Import** plugin lets you bulk-import content from external sources. Map source fields to content type fields, validate every record against the content type's schema, preview the import before committing, detect duplicates, and roll back if something goes wrong.
 
 ## Key Features
 
-- **JSON and CSV parsing** — auto-detection of arrays, nested objects, and CSV delimiters
+- **Five source formats** — JSON, CSV, XML, WordPress (WXR), and Markdown with frontmatter
+- **Schema validation** — every record is validated against the target content type before insert
 - **Field mapping** — map source columns/keys to content type fields with transforms
-- **Transforms** — lowercase, uppercase, trim, number, boolean, date, JSON stringify
-- **Duplicate detection** — detect by slug or any field value
+- **Asset and relation transforms** — turn an image URL into a Studio asset, or a foreign value into a content relation
+- **Duplicate detection** — detect by slug or any field value, including nested paths
 - **Preview mode** — dry-run on the first N records before committing
-- **Progress tracking** — per-row success/error reporting
-- **Retry** — re-run failed rows without re-importing successful ones
-- **Rollback** — delete all content created by a specific import job
-- **Auto slug generation** — slugs generated and uniqueness enforced automatically
+- **Background processing** — large files run as jobs with progress, cancellation, and size limits
+- **Retry** — re-run only the failed rows
+- **Rollback** — delete all content (and assets) created by a specific import job
 
 ## For Admins: Setup
 
-### Migration
+### Migrations
 
 ```bash
 psql -U postgres -d roadbeat_studio -f plugins/pro-import/migrations/001_create_import_tables.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-import/migrations/002_add_organization_id_to_imported_content.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-import/migrations/003_extend_job_statuses.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-import/migrations/004_extend_import_sources.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-import/migrations/005_track_imported_assets.sql
 ```
 
-Tables created: `pro_import_jobs`, `pro_imported_content`
+Tables created: `pro_import_jobs`, `pro_imported_content`, `pro_imported_assets`
+
+### Limits and configuration
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `IMPORT_STALE_HOURS` | `2` | A job stuck in `processing` for longer is swept and marked failed, so a dead worker cannot wedge it forever |
+| `IMPORT_ASSET_MAX_BYTES` | `26214400` (25 MB) | Largest asset the `asset` transform will download |
+| `IMPORT_ASSET_TIMEOUT_MS` | `20000` | Per-asset download timeout |
+
+Inline uploads (`fileContent`) are capped at 5 MB by the API. For larger files, upload to storage first and pass a `fileKey`.
 
 ## For Editors: Importing Content
 
@@ -37,34 +51,82 @@ Tables created: `pro_import_jobs`, `pro_imported_content`
   <Step title="Navigate to Content Import">
     Go to **Content Import** in the sidebar.
   </Step>
-  <Step title="Create an import job">
-    Select the target content type, upload your file (JSON or CSV), and configure field mappings.
+  <Step title="Choose the source format">
+    Pick JSON, CSV, XML, WordPress, or Markdown. Each format shows its own options — a record selector for XML, a post-type picker for WordPress, a ZIP-bundle switch for Markdown.
+  </Step>
+  <Step title="Upload your file and map fields">
+    WordPress and Markdown offer a preset that fills the mapping table with the field names their parser produces, so a migration usually needs no hand-mapping.
   </Step>
   <Step title="Preview (recommended)">
-    Run a preview to see how the first records would be imported. Check for mapping errors, missing fields, and duplicate conflicts.
+    Run a preview to see how the first records would be imported, including schema-validation errors and duplicate conflicts.
   </Step>
   <Step title="Process the import">
-    Execute the import. Progress is tracked per-row with success/failure status.
+    Execute the import. Progress is tracked per row, and a long-running job can be cancelled.
   </Step>
   <Step title="Review results">
-    Check the job status for any errors. Failed rows can be retried individually.
+    Check the job status for errors. Failed rows can be retried on their own.
+  </Step>
+</Steps>
+
+### Source Formats
+
+<Tabs>
+  <Tab title="JSON" icon="braces">
+    An array of objects, or a single object. Nested values are addressed with dot paths.
+  </Tab>
+  <Tab title="CSV" icon="table">
+    Delimiter and UTF-8 byte-order mark are detected automatically; you can still override the delimiter.
+  </Tab>
+  <Tab title="XML" icon="code">
+    Set a **record selector** — a dot path to the repeated node, e.g. `catalog.product`. Leave it blank to auto-detect the repeated element.
+  </Tab>
+  <Tab title="WordPress" icon="globe">
+    Upload the XML from **Tools → Export** in WordPress. Choose which post types to import and whether to include drafts.
+  </Tab>
+  <Tab title="Markdown" icon="file-text">
+    A single `.md` file or a `.zip` of them. Frontmatter keys become fields, the body becomes `content`, and `_slug` is derived from the filename.
+  </Tab>
+</Tabs>
+
+### Migrating from WordPress
+
+<Steps>
+  <Step title="Export from WordPress">
+    In WordPress, go to **Tools → Export** and choose **All content**. You get a `.xml` file — a WXR export.
+  </Step>
+  <Step title="Select the WordPress format">
+    Upload the file and pick **WordPress (WXR export)** as the format.
+  </Step>
+  <Step title="Pick post types">
+    Run a preview once — the picker then lists the post types your export actually contains, rather than the usual defaults. Select what you want and decide whether drafts come along.
+  </Step>
+  <Step title="Apply the preset mapping">
+    Click **Apply preset mapping**. It fills in `title`, `slug`, `content`, `excerpt`, `publishedAt`, `author`, `tags`, and `categories`. Rows you already edited are left untouched.
+  </Step>
+  <Step title="Preview, then import">
+    Preview to catch schema mismatches, then run the import.
   </Step>
 </Steps>
 
 ### Field Mapping
 
-Map each source field to a target content type field:
+Map each target content type field to a source field:
 
 ```json
 {
   "contentTypeId": "news",
-  "data": "...csv or json content...",
-  "mappings": [
-    { "source": "Title", "target": "data.headline.en" },
-    { "source": "Body", "target": "data.body.en" },
-    { "source": "Category", "target": "data.classification.category", "transform": "lowercase" },
-    { "source": "Date", "target": "data.published_date", "transform": "date" }
-  ]
+  "source": "csv",
+  "config": {
+    "fieldMappings": {
+      "data.headline.en": "Title",
+      "data.body.en": "Body",
+      "data.classification.category": { "source": "Category", "transform": "lowercase" },
+      "data.published_date": { "source": "Date", "transform": "date" }
+    },
+    "slugField": "Slug",
+    "skipDuplicates": true,
+    "duplicateKey": "data.external_id"
+  }
 }
 ```
 
@@ -79,16 +141,60 @@ Map each source field to a target content type field:
 | `boolean` | Parse as boolean |
 | `date` | Parse as ISO date |
 | `json` | JSON stringify |
+| `asset` | Download the value (a URL) and store it as an organization asset |
+| `relation` | Resolve the value to an existing content item and store the relation |
+
+### Importing Assets and Relations
+
+The `asset` transform turns an image-URL column into a real Studio asset:
+
+```json
+{
+  "data.image": {
+    "source": "ImageUrl",
+    "transform": "asset",
+    "assetConfig": { "onError": "null" }
+  }
+}
+```
+
+Downloads are checked against the file's actual magic bytes — not the URL extension or the server's declared content type — and URLs resolving to private or internal addresses are rejected.
+
+The `relation` transform resolves a foreign value into a content id:
+
+```json
+{
+  "data.author": {
+    "source": "AuthorSlug",
+    "transform": "relation",
+    "relationConfig": { "contentType": "person", "matchField": "slug", "onMiss": "null" }
+  }
+}
+```
+
+`onMiss` decides what happens when nothing matches: `null` (default), `skip` the row, or `fail` the row.
+
+### Validation
+
+Every record is validated against the target content type's JSON Schema before it is written.
+
+<Callout kind="tip">
+  `validationMode` controls what happens to an invalid record: `strict` (the default) counts it as failed and reports the field-level errors; `skipInvalid` skips it quietly.
+</Callout>
 
 ### Rollback
 
-If an import produces bad data, roll back all content created by that job:
+If an import produces bad data, roll back everything that job created:
 
 ```bash
 POST /api/v1/pro/import/jobs/:id/rollback
 ```
 
-This deletes all content items created by the import, restoring your database to its pre-import state.
+This deletes the content items **and** any assets the import downloaded, so a rolled-back import leaves nothing behind in object storage.
+
+<Callout kind="alert">
+  If deleting a content item fails, its tracking row is kept so the rollback can be retried. A rollback that reports errors has not finished — re-run it.
+</Callout>
 
 ## API Reference
 
@@ -99,6 +205,7 @@ All import endpoints are in the [Studio API Reference](https://docs.studio.roadb
 | `GET /api/v1/pro/import/jobs` | List import jobs |
 | `POST /api/v1/pro/import/jobs` | Create an import job |
 | `POST /api/v1/pro/import/jobs/:id/process` | Execute the import |
+| `POST /api/v1/pro/import/jobs/:id/cancel` | Cancel a running import |
 | `POST /api/v1/pro/import/jobs/:id/retry` | Retry failed rows |
-| `POST /api/v1/pro/import/jobs/:id/rollback` | Roll back imported content |
+| `POST /api/v1/pro/import/jobs/:id/rollback` | Roll back imported content and assets |
 | `POST /api/v1/pro/import/preview` | Preview import (dry-run) |

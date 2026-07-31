@@ -214,7 +214,7 @@
                 "icon": "layers"
               },
               {
-                "title": "Bulk Asset Operations",
+                "title": "Bulk Operations",
                 "path": "plugins/bulk-ops",
                 "icon": "boxes"
               },

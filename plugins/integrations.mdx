@@ -100,10 +100,25 @@ A phase-laned visual canvas draws SVG connectors between step cards; a step insp
 |---|---|
 | **Content event** | `content.afterCreate/afterUpdate/afterPublish/afterDelete`, `asset.afterUpload`, filtered by content type |
 | **Schedule** | A cron expression (evaluated in UTC) |
-| **Inbound webhook** | `POST /hooks-pro/:slug` — HMAC + timestamp window + nonce de-dup |
+| **Inbound webhook** | `POST /hooks-pro/:slug` — HMAC + timestamp window + nonce de-dup, rate-limited |
 | **Manual** | A **Run** button on the flow list, or a content-item toolbar action |
-| **Connector event** | The engine's native polling/webhook triggers |
+| **Connector event** | Polling a feed or JSON endpoint on an interval (see below) |
 | **Agent** | The Studio Agent invokes a Flow as a tool |
+
+#### Connector-event modes
+
+A connector-event trigger runs in one of two modes:
+
+- **`poll`** — the Hub fetches a URL on an interval and starts one run per new item, tracked by a cursor so nothing fires twice. The first poll only establishes a baseline, so activating a trigger on an existing feed does not replay its history. This covers RSS/Atom feeds, JSON endpoints, and status APIs.
+- **`engine`** — a native push trigger compiled into the flow engine (a Slack message, a Stripe event). Stored and validated, but **not yet active**.
+
+<Callout kind="info">
+  An `engine`-mode trigger reports `active: false` with a reason in the API and the triggers dialog, so a configured automation never looks armed while it is still a no-op. Use `poll` mode for anything that must fire today.
+</Callout>
+
+<Callout kind="tip">
+  Schedule and poll triggers claim each firing atomically, so a two-node deployment fires them exactly once rather than twice.
+</Callout>
 
 ### Run lifecycle
 
@@ -158,7 +173,7 @@ Tables (all `pro_`-prefixed, org-scoped): `pro_connectors`, `pro_connections`, `
 
 | Variable | Purpose |
 |---|---|
-| `INTEGRATIONS_KEK` | Key-encryption key that wraps each org's vault data key (AES-256-GCM). **Set this in production** — an insecure dev fallback is used (with a loud warning) when unset |
+| `INTEGRATIONS_KEK` | Key-encryption key that wraps each org's vault data key (AES-256-GCM). **Required in production** — the vault refuses to start without it rather than using a derivable dev key. Generate with `openssl rand -base64 32` |
 | `INTEGRATIONS_ENGINE_URL` | Base URL of the Activepieces sidecar (private network, no public ingress) |
 | `INTEGRATIONS_ENGINE_API_KEY` | API key for the engine |
 | `INTEGRATIONS_ENGINE_PROJECT_ID` | Engine project the Hub compiles flows into |
@@ -168,7 +183,7 @@ Tables (all `pro_`-prefixed, org-scoped): `pro_connectors`, `pro_connections`, `
     Bring up Activepieces on a private docker network with no public ingress (a dev `docker-compose` is provided), and point `INTEGRATIONS_ENGINE_URL` at it.
   </Step>
   <Step title="Set the vault key" icon="key">
-    Set `INTEGRATIONS_KEK` to a strong secret. Every credential is encrypted at rest with a per-org data key wrapped by this KEK.
+    Set `INTEGRATIONS_KEK` to a base64 32-byte key (`openssl rand -base64 32`). Every credential is encrypted at rest with a per-org data key wrapped by this KEK. In production the plugin will not start without it.
   </Step>
   <Step title="Browse the catalog & connect" icon="plug">
     Open **Connectors**, filter by kind / residency, and click **Connect** to vault an API key or run the OAuth flow.

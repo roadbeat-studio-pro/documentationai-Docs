@@ -2,6 +2,132 @@
 title: Changelog
 description: Release notes and updates for roadbeat Studio Pro plugins.
 ---
+<Update label="2026-08-01" description="Data, integrations & APIs — security hardening, delivery reliability, and feature completion across 8 plugins" tags={["feature","security","bugfix"]}>
+  ## Data, Integrations & APIs Overhaul
+
+  An audit-driven pass over the eight data/integration plugins (`pro-import`,
+  `pro-export`, `pro-bulk-ops`, `pro-media`, `pro-graphql`,
+  `pro-api-explorer`, `pro-webhooks`, `pro-integrations`): credential and
+  tenancy fixes, GDPR retention, delivery reliability, and a wave of feature
+  completion.
+
+  ### Security & multi-tenancy
+
+  - **Cross-tenant credential use closed** — engine credential leases are
+    organization-scoped, so a connection id lifted from an edited flow
+    definition can no longer lease another tenant's secret. Leases now also
+    expire instead of being advisory.
+  - **Vault keys fail closed** — `INTEGRATIONS_KEK` and `PRO_AI_VAULT_KEK` are
+    **required in production**; the vault refuses to start rather than falling
+    back to a source-derivable dev key. A malformed key always throws.
+  - **CSV formula injection fixed** — exported cells starting with `=`, `+`,
+    `-`, `@`, tab, or carriage return are neutralized so they display as text
+    instead of executing when the file is opened in Excel or LibreOffice.
+    `EXPORT_CSV_RAW=true` opts out for machine-to-machine pipelines.
+  - **Bearer tokens no longer persisted** in API Explorer history —
+    credential-bearing headers are redacted before the row is written, replay
+    uses the *current* caller's credentials, and cURL export emits a
+    placeholder with correct POSIX quoting instead of the live token.
+  - **Webhook signatures verify the raw request bytes** rather than a
+    re-serialized body, with a timestamp window and single-use nonces; the
+    public inbound endpoint is rate-limited and its nonce table self-prunes.
+  - **Incoming-webhook secrets are show-once** — returned at creation and
+    regeneration only; list and detail responses carry a masked hint.
+  - **SSRF guards extended** — MCP server registration validates the URL it
+    fetches, asset-import downloads reject private and internal addresses, and
+    the guard now catches hosts written with an explicit port.
+  - **Org scoping fixes** — incoming `update_content` actions, webhook
+    retry-config fallback, and media worker job mutations are all
+    organization-scoped.
+
+  ### Privacy & GDPR
+
+  - **Retention windows everywhere** — export files (7 days), webhook delivery
+    and incoming logs (30), API-Explorer history (30), and the bulk-ops asset
+    trash (14) are pruned automatically. Each is configurable per organization
+    within a clamped range.
+  - **Deletion means deletion** — expired exports remove the storage object as
+    well as the database row; purging the asset trash removes every storage
+    object; a rolled-back import deletes the assets it downloaded.
+  - **Data minimization** — sensitive request headers are redacted before
+    logging, and saved API-Explorer rows keep the request but drop the stored
+    response body.
+
+  ### Reliability & correctness
+
+  - **Webhook retries are delivered by a background processor** with atomic
+    claiming, so retries no longer require a manual API call and two nodes do
+    not double-send. DLQ retries re-enter the queue instead of parking in a
+    state nothing processed.
+  - **DLQ email alerts** finally send, debounced per webhook so one outage is
+    one email.
+  - **Schedule and poll triggers claim each firing atomically** — a two-node
+    deployment fires them once, not twice. OAuth token refresh is guarded
+    against the refresh-rotation race.
+  - **Media jobs recover** — a job whose worker died is requeued instead of
+    sitting in `processing` forever, jobs can be cancelled, and an attempt
+    ceiling stops infinite retries.
+  - **GraphQL correctness** — the generated SDL is valid for any number of
+    content types, every advertised filter operator actually executes
+    (`in`, `notIn`, `endsWith`, nested `AND`/`OR`), and numeric/date fields
+    compare as numbers and dates rather than as text. Depth, complexity, and
+    rate limits are enforced instead of merely stored.
+  - **Exports keep all columns** — the CSV header is the union of every
+    record, not just the first, so fields present only in later records are no
+    longer silently dropped. Large exports stream to object storage instead of
+    buffering into a database column.
+  - **Import fixes** — retrying an import re-runs only the failed rows, a
+    failed rollback keeps its tracking rows so it can be retried, and stale
+    jobs are swept rather than wedging forever.
+  - **Bulk results are honest** — responses distinguish changed, unchanged,
+    not-found, and deliberately skipped ids instead of silently dropping them.
+
+  ### New features
+
+  - **Three new import formats** — XML with a record selector, WordPress WXR
+    with a post-type picker and preset field mapping, and Markdown with
+    frontmatter (single file or ZIP bundle). Plus `asset` and `relation`
+    transforms that turn an image URL into a Studio asset or resolve a foreign
+    value into a content relation.
+  - **Scheduled exports** — run a template on a cron schedule and deliver the
+    file to an S3-compatible bucket (SigV4-signed, so European and
+    self-hosted endpoints work) or an HMAC-signed webhook, with full run
+    history. Delivery credentials are encrypted per organization.
+  - **Self-hosted video worker** — ffmpeg-based transcoding, thumbnails, and
+    metadata run on your own infrastructure; quality ladders produce several
+    renditions per job into a per-asset rendition registry.
+  - **Captions** — WebVTT upload per locale across the 24 EU locales, with
+    optional transcription via a **local** engine (`MEDIA_TRANSCRIBE_URL`);
+    there is no cloud fallback.
+  - **Bulk operations grew up** — an undo window with an asset trash, an
+    operation log, presigned download URLs, a server-side ZIP, and bulk
+    publish/unpublish/archive/delete for **content**, delegated to Studio's own
+    content service so versions and events behave exactly as they do for a
+    single item.
+  - **GraphQL Content Delivery API** — a token-authenticated public endpoint
+    serving registered persisted queries, with per-token CORS and scoped draft
+    visibility.
+  - **API Explorer environments** — per-organization variables with
+    `{{variable}}` substitution, secrets encrypted and never returned, plus
+    Postman v2.1 collection export in which tokens become collection variables
+    so no credential material leaves Studio.
+  - **The endpoint catalog is generated from the OpenAPI document**, so it can
+    no longer drift from the real API.
+
+  ### Notes for operators
+
+  - Set `INTEGRATIONS_KEK` (and `PRO_AI_VAULT_KEK`) before deploying — the
+    vaults now refuse to start in production without them.
+  - New migrations ship for `pro-import`, `pro-export`, `pro-bulk-ops`,
+    `pro-media`, `pro-graphql`, `pro-api-explorer`, and `pro-webhooks`; see
+    each plugin page for the exact list.
+  - `ffmpeg` and `ffprobe` must be installed wherever the media worker runs.
+    Set `MEDIA_WORKER_ENABLED=false` on nodes that should not process video.
+  - Existing Slack/Teams/Discord channels configured before this release are
+    unaffected; the media, export, and webhook retention defaults apply
+    immediately and can be overridden per organization.
+</Update>
+
 <Update label="2026-07-31" description="Editorial & collaboration suite — tenancy hardening, reliability, and feature completion across 8 plugins" tags={["feature","security","bugfix"]}>
   ## Editorial & Collaboration Suite Overhaul
 

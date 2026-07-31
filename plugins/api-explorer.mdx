@@ -1,33 +1,47 @@
 ---
 title: API Explorer
-description: Interactive API endpoint catalog with request execution, cURL export, and request history.
+description: Interactive API catalog generated from the OpenAPI document, with environments, variable substitution, and Postman export.
 ---
 
 ## Overview
 
-The **API Explorer** plugin provides an interactive API testing interface built into Studio's admin UI. Browse the full endpoint catalog, execute requests with live responses, generate cURL commands, and save request history for repeated testing.
+The **API Explorer** plugin provides an interactive API testing interface built into Studio's admin UI. Browse the endpoint catalog, execute requests with live responses, reuse values across requests with environments, and export your saved requests as a Postman collection — without any of it leaving your Studio instance.
 
 ## Key Features
 
-- **Endpoint catalog** — browsable list of all API endpoints with descriptions and parameters
-- **Category grouping** — endpoints organized by category (content, assets, auth, etc.)
-- **Search** — find endpoints by keyword
+- **Catalog generated from OpenAPI** — the endpoint list comes from Studio's own OpenAPI document, so it cannot drift from the real API
+- **Category grouping and search** — find endpoints by area or keyword
 - **Example payloads** — auto-generated example request bodies per endpoint
-- **cURL generation** — export any request as a copy-pasteable cURL command
-- **Request execution** — execute API requests directly from the UI with live response display
-- **Request history** — track all executed requests with timestamps, status codes, and response times
-- **Saved requests** — save important requests with names and tags for easy retrieval
-- **Replay** — re-execute any history item with one click
+- **Request execution** — live responses with status, headers, and timing
+- **Environments** — reuse a base URL, an id, or a token across requests with `{{variable}}` substitution
+- **Encrypted secrets** — environment secrets are encrypted per organization and never returned
+- **cURL generation** — copy-pasteable, correctly escaped, with no credential embedded
+- **Postman export** — hand your saved requests to a teammate without handing over tokens
+- **Request history** — replay, save, and tag requests
+- **Automatic retention** — history is cleaned up on a schedule
 
 ## For Admins: Setup
 
-### Migration
+### Migrations
 
 ```bash
 psql -U postgres -d roadbeat_studio -f plugins/pro-api-explorer/migrations/001_create_api_explorer_history.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-api-explorer/migrations/002_redact_history_credentials.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-api-explorer/migrations/003_create_environments.sql
 ```
 
-Table created: `pro_api_explorer_history`
+Tables created: `pro_api_explorer_history`, `pro_api_explorer_environments`
+
+### Configuration
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `API_EXPLORER_RETENTION_DAYS` | `30` | How long request history is kept (1–365; per-organization override available) |
+| `INTEGRATIONS_KEK` | — | base64 32-byte key encrypting environment secrets |
+
+<Callout kind="alert">
+  Without a vault key, creating an environment **with secret values** is refused rather than storing them unencrypted. Environments with only plain variables still work.
+</Callout>
 
 Navigate to **API Explorer** in the sidebar to access the interactive explorer.
 
@@ -35,43 +49,70 @@ Navigate to **API Explorer** in the sidebar to access the interactive explorer.
 
 ### Browsing Endpoints
 
-The endpoint catalog shows every registered API route with:
-
-- HTTP method and path
-- Summary description
-- Required parameters (path, query, body)
-- Authentication requirements
-
-Filter by category or search by keyword to find specific endpoints quickly.
+The endpoint catalog is generated from Studio's live OpenAPI document and shows every registered route with its method and path, summary, parameters, and authentication requirement. Filter by category or search by keyword.
 
 ### Executing Requests
 
 <Steps>
   <Step title="Select an endpoint">
-    Click any endpoint in the catalog to open it.
+    Click any endpoint in the catalog to open it in the request builder.
+  </Step>
+  <Step title="Choose an environment (optional)">
+    Pick one from the selector next to **Request**. Its variables become available to this request.
   </Step>
   <Step title="Fill in parameters">
-    Enter path parameters, query parameters, and request body. Example payloads are pre-filled when available.
+    Enter path parameters, query parameters, headers, and request body. Example payloads are pre-filled when available.
   </Step>
   <Step title="Execute">
-    Click **Send**. The response is displayed with status code, headers, response time, and formatted body.
+    Click **Send**. The response shows status code, headers, response time, and formatted body.
   </Step>
   <Step title="Save or export">
-    Save the request to history, or click **Copy cURL** to export as a cURL command.
+    Save the request to history, or copy it as a cURL command.
   </Step>
 </Steps>
 
+### Environments
+
+An environment is a named set of variables scoped to your organization. Reference one anywhere in the endpoint, headers, or body with double braces — `{{contentId}}` — and it is substituted at execution time.
+
+<Steps>
+  <Step title="Open the Environments tab">
+    Create an environment and name it after where it points, e.g. **Staging**.
+  </Step>
+  <Step title="Add variables">
+    Each row is a name and a value. Tick **Secret** for anything credential-shaped.
+  </Step>
+  <Step title="Mark one as default">
+    The default environment is pre-selected in the request builder for every new session.
+  </Step>
+</Steps>
+
+<Callout kind="alert">
+  Secret values are encrypted per organization and are **never returned by the API** — not even to the Explorer UI, which shows secret names with a masked value. If you lose one, replace it rather than trying to read it back.
+</Callout>
+
+### Credential Handling
+
+The Explorer deliberately never persists or re-emits your bearer token:
+
+| Surface | Behaviour |
+|---------|-----------|
+| Request history | Credential-bearing headers (`authorization`, `cookie`, `x-api-key`, …) are replaced with a redaction marker before the row is written |
+| Replay | Re-executes with the **current caller's** credentials, so replaying someone else's saved request cannot borrow their identity |
+| cURL export | Emits a placeholder instead of the live token, with POSIX-correct quoting |
+| Postman export | Tokens become collection variables, so no credential material is embedded in the file you share |
+
+### Postman Export
+
+Click **Export collection** in the header to download your saved requests as a Postman v2.1 collection.
+
+<Callout kind="tip">
+  This is the safe way to hand an API workflow to a colleague: the collection carries the requests, not the credentials, and the work stays on your EU-hosted Studio instead of a third-party cloud workspace.
+</Callout>
+
 ### Request History
 
-View your request history with:
-
-- Timestamp
-- Method + endpoint
-- Status code
-- Response time
-- Request and response bodies
-
-Actions: **Replay** (re-execute), **Save** (with name and tags), **Delete**.
+History shows timestamp, method and endpoint, status code, response time, and the request/response bodies. Actions: **Replay**, **Save** (with name and tags), **Delete**.
 
 ```bash
 # List history
@@ -88,6 +129,10 @@ PUT /api/v1/pro/api-explorer/history/:id/save
 DELETE /api/v1/pro/api-explorer/history?keepSaved=true
 ```
 
+<Callout kind="info">
+  History is pruned automatically. Unsaved rows are deleted once they pass the retention window; saved rows are kept as reusable request templates but lose their stored **response body**, since that is where personal data accumulates.
+</Callout>
+
 ### Usage Statistics
 
 ```bash
@@ -99,3 +144,17 @@ Returns request counts, most-used endpoints, average response times, and error r
 ## API Reference
 
 All API Explorer endpoints are in the [Studio API Reference](https://docs.studio.roadbeat.dev/api-reference/overview) under the `pro-api-explorer` tag.
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/v1/pro/api-explorer/endpoints` | Endpoint catalog |
+| `GET /api/v1/pro/api-explorer/openapi` | The OpenAPI document behind the catalog |
+| `POST /api/v1/pro/api-explorer/execute` | Execute a request |
+| `POST /api/v1/pro/api-explorer/curl` | Generate a cURL command |
+| `GET /api/v1/pro/api-explorer/history` | Request history |
+| `POST /api/v1/pro/api-explorer/history/:id/replay` | Replay a request |
+| `GET /api/v1/pro/api-explorer/environments` | List environments |
+| `POST /api/v1/pro/api-explorer/environments` | Create an environment |
+| `PUT /api/v1/pro/api-explorer/environments/:id` | Update an environment |
+| `DELETE /api/v1/pro/api-explorer/environments/:id` | Delete an environment |
+| `GET /api/v1/pro/api-explorer/export/postman` | Export saved requests as a Postman collection |

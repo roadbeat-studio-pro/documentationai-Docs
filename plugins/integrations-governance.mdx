@@ -17,12 +17,19 @@ The single most security-sensitive component.
 
 - **Encrypted at rest** with a per-organization **data-encryption key (DEK)**, itself wrapped by a **key-encryption key (KEK)** from the environment (`INTEGRATIONS_KEK`). Algorithm: **AES-256-GCM**.
 - **Never returned to the frontend** — only metadata and a masked hint (`sk-…abcd`).
-- **Never stored in the flow engine** — the engine fetches a short-lived, single-use credential at execution time through the adapter's `resolveCredential()` callback; the engine's own credential store is disabled.
+- **Never stored in the flow engine** — the engine fetches a short-lived, single-use credential at execution time through the adapter's `resolveCredential()` callback; the engine's own credential store is disabled. The lease is **organization-scoped**: a connection id lifted from an edited flow definition cannot lease a credential belonging to another tenant.
+- **Leases expire** — a leased secret becomes unusable once its TTL passes, so a lease held across a long-running step cannot be reused later.
 - **Never exposed to the model** — the Agent sees connector *capabilities*, never secrets. Tool args are sanitised and outbound payloads redacted per policy.
 - **OAuth rotation** — refresh tokens are vaulted and auto-refreshed before expiry; deleting a connection purges its vault entry.
 
 <Callout kind="danger">
-  Set `INTEGRATIONS_KEK` to a strong secret in production. When it is unset the plugin falls back to an **insecure deterministic dev key** and logs a loud warning — never run production without a real KEK.
+  `INTEGRATIONS_KEK` is **required in production**. With `NODE_ENV=production` (or `REQUIRE_VAULT_KEK=true`) the vault refuses to start rather than falling back to a dev key, because a source-derivable key means the ciphertext in your database is decryptable by anyone holding a copy of it. A malformed key always throws, in every environment.
+
+  Generate one with `openssl rand -base64 32`.
+</Callout>
+
+<Callout kind="info">
+  Outside production, an unset KEK still falls back to an insecure deterministic dev key and logs a loud warning, so local development needs no setup.
 </Callout>
 
 ## Egress policy
@@ -39,7 +46,9 @@ On top of the mode, the engine:
 
 - gates **non-EU / unknown-residency** egress on explicit `pii_egress` consent,
 - strips configured **`redact_fields`** (dot-paths) from the payload **before** the external call, and
-- runs an **always-on SSRF guard** that blocks loopback, link-local, cloud-metadata, and private-range targets regardless of policy.
+- runs an **always-on SSRF guard** that blocks loopback, link-local, cloud-metadata, and private-range targets regardless of policy — by hostname, by literal IP, and after DNS resolution, including hosts written with an explicit port.
+
+The same guard applies to **MCP server registration**: the URL you supply is fetched to discover the server's tools, so it is validated exactly like any other egress target rather than trusted because it came from an administrator.
 
 A denied egress is a **non-retryable** step failure, and the (possibly redacted) payload is what actually gets sent.
 
@@ -90,6 +99,9 @@ Per-org limits bound the Hub's blast radius. The admin-configurable policy lives
 | Concurrent runs | The run worker only starts a run when the org is below its cap | 8 |
 | Egress bytes / day | Checked + metered in the executor before each call | 1 GiB |
 | Agent tokens / day | Checked + metered in the agent | 1,000,000 |
+| Inbound webhook calls | Throttled per caller on `POST /hooks-pro/:slug` | 60 / min |
+
+The public inbound-webhook endpoint costs a database lookup and a vault decrypt before a bad signature can be rejected, so it is throttled independently of the run quotas. Replay-protection nonces are pruned automatically once they age past the replay window, so the table cannot grow without bound.
 
 **Anomaly detection** watches for exfiltration loops (repeated egress to one host), egress byte spikes, and quota breaches, raising a warning, an `anomaly` audit row, and an `integrations.anomaly` event.
 

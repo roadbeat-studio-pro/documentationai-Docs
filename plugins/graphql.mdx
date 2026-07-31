@@ -1,36 +1,36 @@
 ---
 title: GraphQL API
-description: Auto-generated GraphQL schema from content types with dynamic queries, filtering, and responsive image resolution.
+description: Auto-generated GraphQL schema from content types, with full filtering, enforced limits, and a token-authenticated public delivery endpoint.
 ---
 
 ## Overview
 
-The **GraphQL API** plugin auto-generates a full GraphQL SDL schema from your content type JSON schemas. Query content with type-safe fields, filtering, pagination, and built-in asset resolution with responsive images — all without writing any schema code.
+The **GraphQL API** plugin auto-generates a full GraphQL SDL schema from your content type JSON schemas. Query content with type-safe fields, filtering, pagination, and built-in asset resolution with responsive images — and expose a locked-down public delivery endpoint for your front-ends.
 
 ## Key Features
 
-- **Auto-generated SDL** — GraphQL types generated from content type JSON schemas with system fields
-- **Per-type queries** — single item and collection queries for each content type
-- **Filtering** — StringFilter (eq, ne, in, contains, startsWith), NumberFilter (gt, gte, lt, lte), BooleanFilter, DateTimeFilter + AND/OR combinators
-- **Pagination and ordering** — limit, offset, orderBy with ascending/descending
+- **Auto-generated SDL** — valid for any number of content types, with collision-free type names
+- **Full filtering** — every operator the SDL advertises is executed, including `in`, `notIn`, `endsWith`, and nested `AND`/`OR`
+- **Correct comparisons** — numeric and date fields compare as numbers and dates, not as text
+- **Pagination and ordering** — limit, offset, orderBy ascending/descending
 - **Reference resolution** — linked content items resolved automatically
 - **Asset resolution** — responsive images with srcSet, breakpoints, LQIP, dominant color
-- **Batch queries** — execute multiple queries in a single request
-- **Per-org configuration** — playground, introspection, max depth, rate limit, caching
+- **Batch queries** — several queries in a single bounded request
+- **Enforced limits** — depth, complexity, and rate limits are applied, not just stored
+- **Delivery API** — token-authenticated public endpoint with persisted queries and per-token CORS
 
 ## For Admins: Configuration
 
-### Migration
+### Migrations
 
 ```bash
 psql -U postgres -d roadbeat_studio -f plugins/pro-graphql/migrations/001_create_graphql_config.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-graphql/migrations/002_delivery_api.sql
 ```
 
-Table created: `pro_graphql_configs`
+Tables created: `pro_graphql_configs`, `pro_graphql_delivery_tokens`, `pro_graphql_persisted_queries`
 
 ### GraphQL Configuration
-
-Configure per-organization settings:
 
 ```bash
 PUT /api/v1/pro/graphql/config
@@ -47,9 +47,11 @@ PUT /api/v1/pro/graphql/config
 }
 ```
 
-### Schema Inspection
+<Callout kind="info">
+  These limits are enforced on every query, including batch requests and the public delivery endpoint. A request that exceeds `maxDepth` or `maxComplexity` is rejected rather than executed.
+</Callout>
 
-View the generated schema:
+### Schema Inspection
 
 ```bash
 # Full GraphQL SDL with descriptions
@@ -87,7 +89,11 @@ POST /api/v1/pro/graphql/query
   "contentType": "news",
   "where": {
     "status": { "eq": "published" },
-    "data.classification.category": { "in": ["politics", "economy"] }
+    "data.classification.category": { "in": ["politics", "economy"] },
+    "OR": [
+      { "data.priority": { "gte": 5 } },
+      { "data.headline.en": { "endsWith": "(live)" } }
+    ]
   },
   "orderBy": "publishedAt_DESC",
   "limit": 10,
@@ -95,9 +101,21 @@ POST /api/v1/pro/graphql/query
 }
 ```
 
-### Batch Queries
+### Filter Operators
 
-Execute multiple queries in one request:
+| Filter | Operators |
+|--------|-----------|
+| String | `eq`, `ne`, `in`, `notIn`, `contains`, `startsWith`, `endsWith`, `isNull` |
+| Number | `eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `in`, `isNull` |
+| Boolean | `eq`, `ne`, `isNull` |
+| DateTime | `eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `isNull` |
+| Combinators | `AND`, `OR` (nestable) |
+
+<Callout kind="tip">
+  Numeric and date fields stored in JSON are cast before comparison, so `{ "data.price": { "gt": 100 } }` orders `9` before `100` the way you would expect, rather than comparing them as strings.
+</Callout>
+
+### Batch Queries
 
 ```bash
 POST /api/v1/pro/graphql/query/batch
@@ -109,6 +127,8 @@ POST /api/v1/pro/graphql/query/batch
 }
 ```
 
+The number of queries per batch is bounded, and each one is checked against the same depth and complexity limits as a single query.
+
 ### Asset Resolution with Responsive Images
 
 ```bash
@@ -117,10 +137,69 @@ GET /api/v1/pro/graphql/resolve/asset/:assetId?w=800&h=600&fit=cover
 
 Returns responsive image data including srcSet at multiple breakpoints (320–1920px), WebP format, LQIP base64 placeholder, and dominant background color.
 
+## Content Delivery API
+
+The endpoints above require a Studio session. The **delivery API** is the public one — the part that makes this a headless CMS rather than a playground. It is authenticated by an organization-scoped delivery token and serves only queries you have registered.
+
+<Steps>
+  <Step title="Register a persisted query">
+    ```bash
+    POST /api/v1/pro/graphql/delivery/queries
+    { "name": "homepage-news", "query": { "contentType": "news", "limit": 10, "orderBy": "publishedAt_DESC" } }
+    ```
+    The response contains the query **hash** your front-end will call.
+  </Step>
+  <Step title="Create a delivery token">
+    ```bash
+    POST /api/v1/pro/graphql/delivery/tokens
+    { "name": "Website", "scopes": ["read"], "allowedOrigins": ["https://example.eu"] }
+    ```
+    Scopes are `read` (published content, the default) and `read:draft`. The token is shown **once** — store it in your front-end's server-side config.
+  </Step>
+  <Step title="Execute from your front-end">
+    ```bash
+    POST /api/v1/graphql-delivery/query/<hash>
+    Authorization: Bearer <delivery-token>
+    { "variables": { "locale": "de" } }
+    ```
+  </Step>
+</Steps>
+
+### Delivery guarantees
+
+| Property | Behaviour |
+|----------|-----------|
+| Executable queries | Only registered hashes — a public client cannot compose arbitrary queries |
+| Draft visibility | Published content only, unless the token carries the `read:draft` scope |
+| CORS | Restricted to the token's `allowedOrigins`, not wide open |
+| Limits | The organization's depth, complexity, and rate limits apply here too |
+| Rate limiting | Per token, plus a global throttle on the endpoint |
+
+<Callout kind="alert">
+  Draft visibility is decided by the **token's scope**, not by the organization's `includeDraft` setting. A delivery token without `read:draft` never sees drafts, even when the Studio-side configuration includes them.
+</Callout>
+
 <Callout kind="info">
-  The GraphQL plugin uses a REST-based query interface rather than a traditional GraphQL endpoint. This keeps the plugin self-contained without requiring Apollo Server as a dependency.
+  The Studio-side query interface is REST-shaped rather than a traditional GraphQL endpoint. This keeps the plugin self-contained without requiring Apollo Server as a dependency.
 </Callout>
 
 ## API Reference
 
-All GraphQL endpoints are in the [Studio API Reference](https://docs.studio.roadbeat.dev/api-reference/overview) under the `pro-graphql` tag.
+All GraphQL endpoints are in the [Studio API Reference](https://docs.studio.roadbeat.dev/api-reference/overview) under the `pro-graphql` and `pro-graphql-delivery` tags.
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/v1/pro/graphql/schema` | Generated schema |
+| `POST /api/v1/pro/graphql/query` | Execute a query |
+| `POST /api/v1/pro/graphql/query/batch` | Execute several queries |
+| `GET /api/v1/pro/graphql/resolve/asset/:id` | Responsive image data |
+| `GET /api/v1/pro/graphql/config` | Read configuration |
+| `PUT /api/v1/pro/graphql/config` | Update configuration |
+| `GET /api/v1/pro/graphql/delivery/tokens` | List delivery tokens |
+| `POST /api/v1/pro/graphql/delivery/tokens` | Create a delivery token (shown once) |
+| `DELETE /api/v1/pro/graphql/delivery/tokens/:id` | Revoke a token |
+| `GET /api/v1/pro/graphql/delivery/queries` | List persisted queries |
+| `POST /api/v1/pro/graphql/delivery/queries` | Register a persisted query |
+| `DELETE /api/v1/pro/graphql/delivery/queries/:id` | Remove a persisted query |
+| `POST /api/v1/graphql-delivery/query/:hash` | **Public** — execute a persisted query |
+| `GET /api/v1/graphql-delivery/schema` | **Public** — schema for registered clients |

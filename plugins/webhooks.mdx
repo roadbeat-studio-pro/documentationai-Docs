@@ -1,35 +1,48 @@
 ---
 title: Advanced Webhooks
-description: Webhook retry with exponential backoff, dead letter queue, delivery analytics, and incoming webhooks.
+description: Automatic retry with exponential backoff, dead letter queue with email alerts, incoming webhooks with replay protection, and GDPR retention.
 ---
 
 ## Overview
 
-The **Advanced Webhooks** plugin extends CE's basic webhook system with enterprise-grade delivery reliability. Failed deliveries are retried with exponential backoff, permanently failed deliveries go to a dead letter queue (DLQ), and incoming webhooks let external systems push data into Studio.
+The **Advanced Webhooks** plugin extends CE's basic webhook system with enterprise-grade delivery reliability. Failed deliveries are retried automatically with exponential backoff, permanently failed deliveries go to a dead letter queue that can alert you by email, and incoming webhooks let external systems push data into Studio over a signed, replay-protected endpoint.
 
 ## Key Features
 
-- **Configurable retry** — per-webhook retry strategy with exponential backoff, max attempts, and delay settings
-- **Dead letter queue** — permanently failed deliveries stored for inspection and manual retry
-- **Delivery log** — full history of every delivery attempt with status, response time, and payload
-- **Incoming webhooks** — receive data from external systems via custom endpoints with HMAC verification
-- **DLQ analytics** — statistics across all webhooks for monitoring delivery health
-- **Housekeeping** — automatic cleanup of old delivery logs
+- **Background retry processor** — due retries are delivered automatically, with no manual API call
+- **Configurable backoff** — per-webhook max attempts, delays, multiplier, and retryable status codes
+- **Dead letter queue** — permanently failed deliveries stored for inspection and retry
+- **DLQ email alerts** — get told when deliveries start failing, debounced so one outage is one email
+- **Incoming webhooks** — HMAC-verified endpoints with timestamp and replay protection
+- **Show-once secrets** — signing secrets are returned at creation and never again
+- **Header redaction** — credential-bearing headers are never written to the log
+- **Automatic retention** — delivery and execution logs are pruned on a schedule
 
 ## For Admins: Configuration
 
-### Migration
+### Migrations
 
 ```bash
 psql -U postgres -d roadbeat_studio -f plugins/pro-webhooks/migrations/001_create_webhook_retry_tables.sql
-psql -U postgres -d roadbeat_studio -f plugins/pro-webhooks/migrations/002_create_incoming_webhooks.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-webhooks/migrations/002_create_incoming_webhook_tables.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-webhooks/migrations/003_add_dlq_alert_debounce.sql
 ```
 
 Tables created: `pro_webhook_retries`, `pro_dead_letters`, `pro_incoming_webhooks`, `pro_incoming_webhook_logs`
 
-### Retry Configuration
+### Configuration
 
-Configure retry behavior per webhook:
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `WEBHOOK_DELIVERY_RETENTION_DAYS` | `30` | How long terminal delivery-log rows are kept (1–365) |
+| `INCOMING_WEBHOOK_LOG_RETENTION_DAYS` | `30` | How long incoming execution logs are kept (1–365) |
+| `INCOMING_WEBHOOK_REPLAY_WINDOW_SECONDS` | `300` | How old a signed request may be before it is rejected |
+| `WEBHOOK_DLQ_ALERT_DEBOUNCE_MINUTES` | `15` | Minimum gap between DLQ alert emails for one webhook |
+| `STUDIO_DEFAULT_LOCALE` | `en` | Language of the DLQ alert email |
+
+Both retention windows can be overridden per organization.
+
+### Retry Configuration
 
 ```bash
 PUT /api/v1/pro/webhooks/:webhookId/retry-config
@@ -42,16 +55,18 @@ PUT /api/v1/pro/webhooks/:webhookId/retry-config
 }
 ```
 
-Preview the retry schedule:
+Preview the resulting schedule:
 
 ```bash
 GET /api/v1/pro/webhooks/:webhookId/retry-schedule
 # Returns: [1s, 2s, 4s, 8s, 16s] — based on current config
 ```
 
-### Dead Letter Queue
+<Callout kind="info">
+  Retries are delivered by a background processor that claims due deliveries atomically, so several Studio nodes can run side by side without double-sending. Nothing needs to be triggered by hand.
+</Callout>
 
-View and manage failed deliveries:
+### Dead Letter Queue
 
 ```bash
 # List DLQ entries for a webhook
@@ -70,9 +85,19 @@ DELETE /api/v1/pro/webhooks/:webhookId/failed
 GET /api/v1/pro/webhooks/dlq/stats
 ```
 
-### Incoming Webhooks
+Retried deliveries re-enter the normal queue and are picked up by the processor.
 
-Create endpoints that external systems can call to push data into Studio:
+### DLQ Alerts
+
+Turn on `alertOnDlq` and set `alertEmail` on a webhook to be told when a delivery lands in the dead letter queue. The email names the webhook, the endpoint, the failing status, and how many deliveries are queued.
+
+<Callout kind="tip">
+  Alerts are debounced per webhook, so a provider outage that fails two hundred deliveries produces one email rather than two hundred.
+</Callout>
+
+## Incoming Webhooks
+
+Create endpoints that external systems call to push data into Studio:
 
 ```bash
 POST /api/v1/pro/incoming-webhooks
@@ -80,21 +105,44 @@ POST /api/v1/pro/incoming-webhooks
   "name": "GitHub Deployment",
   "slug": "github-deploy",
   "description": "Triggered on successful deployment",
-  "enabled": true,
-  "actions": [
-    { "type": "publish_content", "contentTypeId": "news", "filter": { "tag": "deployment" } }
-  ]
+  "action_type": "create_content",
+  "config": { "contentTypeId": "news" },
+  "is_active": true
 }
 ```
 
 External systems send data to:
-```
+
+```http
 POST /api/v1/hooks/:slug
 ```
 
-Each incoming webhook has its own signing secret for HMAC verification and a delivery log for debugging.
+### Signing a request
 
-### Delivery Statistics
+| Header | Purpose |
+|--------|---------|
+| `x-webhook-signature` | HMAC-SHA256 over the **raw request body** |
+| `x-webhook-timestamp` | Unix timestamp, bound into the signature |
+
+<Callout kind="alert">
+  The signature is computed over the exact bytes you send. Do not re-serialize the JSON before signing — a difference in key order or whitespace produces a different signature and the request is rejected.
+</Callout>
+
+Requests older than the replay window are rejected, so a captured payload cannot be replayed indefinitely. The public endpoint is rate-limited.
+
+### Secret handling
+
+The signing secret is returned **once**, when you create the webhook or regenerate its secret. After that, list and detail responses show only a masked hint.
+
+<Callout kind="alert">
+  Copy the secret when it is shown. It cannot be retrieved later — if it is lost, regenerate it, which invalidates the previous secret immediately.
+</Callout>
+
+### Execution log
+
+Every call is logged with its status, action, and outcome for debugging. Credential-bearing request headers (`authorization`, `cookie`, `x-api-key`, …) are redacted before the row is written, so the log never contains someone else's tokens, and rows are pruned once they pass the retention window.
+
+## Statistics and Housekeeping
 
 ```bash
 # Per-webhook stats
@@ -102,13 +150,8 @@ GET /api/v1/pro/webhooks/:webhookId/stats
 
 # Organization-wide stats
 GET /api/v1/pro/webhooks/stats/overview
-```
 
-### Housekeeping
-
-Clean up old delivery logs:
-
-```bash
+# Manual log cleanup (retention also runs on a schedule)
 DELETE /api/v1/pro/webhooks/housekeeping?olderThanDays=30
 ```
 

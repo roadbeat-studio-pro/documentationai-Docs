@@ -1,35 +1,69 @@
 ---
 title: Video Processing
-description: Video transcoding jobs, thumbnail generation, and reusable transcode profiles.
+description: Self-hosted video transcoding, quality ladders, thumbnails, and WebVTT captions with optional local transcription.
 ---
 
 ## Overview
 
-The **Video Processing** plugin adds professional video management to Studio's Asset Library. Create transcoding jobs for uploaded videos, generate thumbnails, and define reusable transcode profiles for consistent output formats.
+The **Video Processing** plugin adds professional video management to Studio's Asset Library. A built-in worker transcodes uploaded videos with ffmpeg, extracts metadata and thumbnails, builds a quality ladder of renditions, and manages caption tracks — all on your own infrastructure.
+
+<Callout kind="info">
+  Processing runs on **your** servers via ffmpeg. No video is sent to a third-party transcoding cloud, which keeps media inside your data-sovereignty boundary.
+</Callout>
 
 ## Key Features
 
-- **Transcoding jobs** — convert videos between formats with configurable quality settings
-- **Thumbnail generation** — extract thumbnail frames from videos
-- **Metadata extraction** — parse video dimensions, duration, codec, and bitrate
-- **Transcode profiles** — reusable presets for common output configurations
-- **Job lifecycle** — pending → processing → completed/failed with retry support
-- **Priority-based processing** — higher priority jobs are processed first
-- **Per-asset video info** — query video metadata for any asset
+- **Self-hosted worker** — ffmpeg-based, polls for queued jobs and processes them
+- **Quality ladder** — one job can produce several renditions, one per transcode profile
+- **Rendition registry** — every output is registered per asset, not buried in job history
+- **Thumbnails and metadata** — dimensions, duration, codec, bitrate, audio presence
+- **Captions** — upload WebVTT tracks per locale, with optional local transcription
+- **Cancellation** — pending jobs stop immediately, running jobs stop cooperatively
+- **Crash recovery** — jobs whose worker died are requeued automatically
+- **Attempt limits** — a job cannot retry forever
 
 ## For Admins: Configuration
 
-### Migration
+### Migrations
 
 ```bash
 psql -U postgres -d roadbeat_studio -f plugins/pro-media/migrations/001_create_video_tables.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-media/migrations/002_worker_lifecycle.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-media/migrations/003_create_renditions.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-media/migrations/004_create_captions.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-media/migrations/005_fix_created_by_fk.sql
 ```
 
-Tables created: `pro_video_jobs`, `pro_transcode_profiles`
+Tables created: `pro_video_jobs`, `pro_transcode_profiles`, `pro_video_renditions`, `pro_video_captions`
+
+### Requirements
+
+`ffmpeg` and `ffprobe` must be available to the Studio API process. On Debian/Ubuntu:
+
+```bash
+apt-get install -y ffmpeg
+```
+
+### Configuration
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `MEDIA_WORKER_ENABLED` | enabled | Set to `false` to stop this node from picking up jobs |
+| `FFMPEG_PATH` | `ffmpeg` | Path to the ffmpeg binary |
+| `FFPROBE_PATH` | `ffprobe` | Path to the ffprobe binary |
+| `MEDIA_JOB_TIMEOUT_SECONDS` | `900` | Per-job wall-clock limit |
+| `MEDIA_MAX_ATTEMPTS` | `5` | Attempts before a job fails permanently |
+| `MEDIA_THUMBNAIL_SECOND` | auto | Timestamp to grab the thumbnail from |
+| `MEDIA_TRANSCRIBE_URL` | unset | Local transcription engine; captions auto-generation is off unless set |
+| `MEDIA_TRANSCRIBE_LOCALE` | — | Default locale for generated captions |
+
+<Callout kind="tip">
+  On a multi-node deployment, set `MEDIA_WORKER_ENABLED=false` on the nodes serving interactive traffic and leave it enabled on a dedicated worker node. Job claiming is atomic, so several workers can also run safely side by side.
+</Callout>
 
 ### Transcode Profiles
 
-Create reusable profiles for common video output settings:
+Create reusable profiles for common output settings:
 
 ```bash
 POST /api/v1/pro/media/profiles
@@ -44,8 +78,6 @@ POST /api/v1/pro/media/profiles
 }
 ```
 
-Manage profiles:
-
 | Endpoint | Description |
 |----------|-------------|
 | `GET /api/v1/pro/media/profiles` | List all profiles |
@@ -56,7 +88,7 @@ Manage profiles:
 
 ## For Editors: Working with Video
 
-### Creating a Transcoding Job
+### Creating a Job
 
 After uploading a video to the Asset Library, create a job to process it:
 
@@ -65,7 +97,7 @@ POST /api/v1/pro/media/jobs
 {
   "assetId": "video-asset-uuid",
   "jobType": "transcode",
-  "profileId": "web-optimized-profile-uuid",
+  "transcodeProfileId": "web-optimized-profile-uuid",
   "priority": 10
 }
 ```
@@ -75,36 +107,104 @@ POST /api/v1/pro/media/jobs
 | Type | Description |
 |------|-------------|
 | `metadata` | Extract video metadata (dimensions, duration, codec) |
-| `thumbnail` | Generate thumbnail image from a video frame |
+| `thumbnail` | Generate a thumbnail image from a video frame |
 | `transcode` | Convert to a different format/resolution using a profile |
-| `full` | All of the above in sequence |
+| `captions` | Generate a caption track using the configured transcription engine |
+| `full` | Metadata, thumbnail, and transcode in sequence |
 
-### Monitoring Jobs
+### Quality Ladders
+
+Pass several profiles to produce one rendition each from a single job:
+
+```bash
+POST /api/v1/pro/media/jobs
+{
+  "assetId": "video-asset-uuid",
+  "jobType": "transcode",
+  "transcodeProfileIds": ["1080p-uuid", "720p-uuid", "480p-uuid"]
+}
+```
+
+Every output is registered against the asset, so players can pick a rendition:
+
+```bash
+GET /api/v1/pro/media/assets/:assetId/renditions
+```
+
+### Monitoring and Controlling Jobs
 
 ```bash
 # List jobs (with filters)
 GET /api/v1/pro/media/jobs?status=processing&assetId=uuid
 
-# Get job details
-GET /api/v1/pro/media/jobs/:id
+# Cancel — pending stops at once, processing stops cooperatively
+POST /api/v1/pro/media/jobs/:id/cancel
 
-# Retry a failed job
+# Retry a failed job (until the attempt ceiling)
 POST /api/v1/pro/media/jobs/:id/retry
 
 # Processing statistics
 GET /api/v1/pro/media/stats
 ```
 
-### Video Info
+The jobs list shows an **attempt counter** against the ceiling. Once a job has used all its attempts the counter turns red and Retry disappears — the job needs a fix, not another attempt.
 
-Get video metadata for any asset:
+<Callout kind="info">
+  If a worker dies mid-job, its heartbeat goes stale and the job is requeued automatically rather than sitting in `processing` forever. Cancelled and stale jobs can also be deleted.
+</Callout>
+
+### Captions
+
+Open the **Captions** tab in Video Processing, enter a video asset id, and manage its tracks.
+
+<Steps>
+  <Step title="Pick the language">
+    Choose from the 24 EU locales. One track per locale per asset.
+  </Step>
+  <Step title="Upload a WebVTT file">
+    Select a `.vtt` file or paste its contents. The file is validated before it is stored — an error names the offending line rather than failing vaguely.
+  </Step>
+  <Step title="Mark a default (optional)">
+    The default track is the one a player selects when the viewer has no preference.
+  </Step>
+</Steps>
+
+Caption tracks appear in the asset's video info, so a player can offer them directly.
+
+#### Automatic transcription
+
+If `MEDIA_TRANSCRIBE_URL` points at a local transcription engine — a Whisper-class model on your own infrastructure, for example the one the roadbeat Augmentor hosts — a `captions` job can generate a track automatically. Generated tracks are marked `auto` so they are distinguishable from ones a human wrote.
+
+<Callout kind="tip">
+  Captions are an accessibility requirement under the European Accessibility Act for published video, not a nice-to-have. There is no cloud fallback: with no engine configured, auto-generation is simply off and you upload tracks yourself.
+</Callout>
+
+### Video Info
 
 ```bash
 GET /api/v1/pro/media/assets/:assetId/video-info
 ```
 
-Returns dimensions, duration, codec, bitrate, and other technical metadata.
+Returns dimensions, duration, codec, bitrate, thumbnail and transcode keys, available renditions, and caption tracks.
+
+<Callout kind="info">
+  Each field is resolved from the most recent job that actually produced it. Running a metadata-only job after a transcode therefore no longer hides the transcode result.
+</Callout>
 
 ## API Reference
 
 All video processing endpoints are in the [Studio API Reference](https://docs.studio.roadbeat.dev/api-reference/overview) under the media-related tags.
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/v1/pro/media/jobs` | List jobs |
+| `POST /api/v1/pro/media/jobs` | Create a job |
+| `POST /api/v1/pro/media/jobs/:id/cancel` | Cancel a job |
+| `POST /api/v1/pro/media/jobs/:id/retry` | Retry a failed job |
+| `DELETE /api/v1/pro/media/jobs/:id` | Delete a job |
+| `GET /api/v1/pro/media/stats` | Processing statistics |
+| `GET /api/v1/pro/media/assets/:assetId/video-info` | Metadata, keys, renditions, captions |
+| `GET /api/v1/pro/media/assets/:assetId/renditions` | Registered renditions |
+| `GET /api/v1/pro/media/assets/:assetId/captions` | Caption tracks |
+| `POST /api/v1/pro/media/captions` | Upload a WebVTT track |
+| `DELETE /api/v1/pro/media/captions/:id` | Delete a caption track |

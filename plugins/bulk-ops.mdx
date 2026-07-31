@@ -1,35 +1,48 @@
 ---
-title: Bulk Asset Operations
-description: Bulk move, delete, tag, and download assets across the Asset Library.
+title: Bulk Operations
+description: Bulk move, delete, tag, and download assets, plus bulk publish and archive for content — with a trash window, undo, and an audit log.
 ---
 
 ## Overview
 
-The **Bulk Asset Operations** plugin adds batch operations for the Asset Library. Select multiple assets and move them to a folder, delete them, add or remove tags, or download them as a ZIP archive — all in one operation.
+The **Bulk Operations** plugin adds batch operations for the Asset Library and for content. Select many items and move, delete, tag, or download them in one operation — and undo it afterwards if it was a mistake.
 
 ## Key Features
 
-- **Bulk move** — move multiple assets to a target folder
-- **Bulk delete** — delete multiple assets at once (with reference safety check)
-- **Bulk add tags** — add tags to multiple assets simultaneously
-- **Bulk remove tags** — remove tags from multiple assets
-- **Bulk download** — download selected assets as a ZIP archive
-- **Bulk info** — get aggregate information for a set of assets
-- **No additional tables** — operates on CE's existing asset tables
+- **Bulk asset operations** — move, delete, tag, untag, download, aggregate info
+- **Bulk content operations** — publish, unpublish, archive, delete
+- **Trash and undo** — deleted assets are recoverable for a retention window
+- **Operation log** — every bulk operation is recorded with who ran it and what it touched
+- **Storage cleanup** — purging the trash deletes the files, not just the database rows
+- **In-use protection** — assets referenced by content are not deleted by accident
+- **Honest results** — the response distinguishes changed, unchanged, and not-found ids
+- **Presigned downloads** — download links are short-lived signed URLs, never raw storage keys
+- **Server-side ZIP** — download a selection as a single archive
 
 ## For Admins: Setup
 
-No migration required — this plugin uses CE's existing asset tables. Simply enable the plugin via your license key.
+### Migration
+
+```bash
+psql -U postgres -d roadbeat_studio -f plugins/pro-bulk-ops/migrations/001_create_bulk_op_log.sql
+```
+
+Tables created: `pro_bulk_op_log`, `pro_asset_trash`
+
+### Configuration
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `BULK_TRASH_RETENTION_DAYS` | `14` | How long a deleted asset stays recoverable (1–90; per-organization override available) |
+| `BULK_ZIP_MAX_BYTES` | `2147483648` (2 GB) | Largest ZIP the server will assemble |
 
 ## For Editors: Using Bulk Operations
 
 ### Selecting Assets
 
-In the Asset Library, use checkboxes to select multiple assets. Once you have a selection, the bulk action toolbar appears with available operations.
+In the Asset Library, use checkboxes to select multiple assets. Once you have a selection, the bulk action toolbar appears with the available operations.
 
 ### Bulk Move
-
-Move selected assets to a different folder:
 
 ```bash
 POST /api/v1/pro/assets/bulk/move
@@ -41,8 +54,6 @@ POST /api/v1/pro/assets/bulk/move
 
 ### Bulk Delete
 
-Delete multiple assets at once:
-
 ```bash
 POST /api/v1/pro/assets/bulk/delete
 {
@@ -51,12 +62,41 @@ POST /api/v1/pro/assets/bulk/delete
 ```
 
 <Callout kind="alert">
-  Bulk delete checks for content references. Assets referenced by content items will not be deleted unless you use the force option. The response shows which assets were deleted and which were skipped.
+  Bulk delete first checks whether an asset is referenced by content. Referenced assets are skipped unless you pass the force option, and the response lists exactly which ones were skipped and why.
 </Callout>
 
-### Bulk Tagging
+Deleted assets go to the **trash** rather than disappearing. Until the retention window expires they can be restored, complete with their file — which is why the storage object is not removed at delete time, only at purge time.
 
-Add or remove tags from multiple assets:
+### Undo and Trash
+
+<Steps>
+  <Step title="Find the operation">
+    `GET /api/v1/pro/assets/bulk/ops` lists recent bulk operations with who ran them, when, and how many items each touched.
+  </Step>
+  <Step title="Undo it">
+    `POST /api/v1/pro/assets/bulk/ops/:id/undo` reverses the operation — moves go back to the original folder, tags are re-added or re-removed, deletes are restored from the trash.
+  </Step>
+  <Step title="Or restore individually">
+    `GET /api/v1/pro/assets/bulk/trash` lists what is recoverable; `POST /api/v1/pro/assets/bulk/trash/restore` brings specific assets back.
+  </Step>
+</Steps>
+
+<Callout kind="alert">
+  When the retention window passes, the trash is purged: the database row **and** every storage object (original plus variants) are deleted. After that, an undo is no longer possible.
+</Callout>
+
+### Understanding the Response
+
+Bulk responses tell you what actually happened rather than a single count:
+
+| Field | Meaning |
+|-------|---------|
+| `affected` | Items that genuinely changed |
+| `unchanged` | Items already in the requested state — a no-op, not a failure |
+| `notFound` | Ids that do not exist, or belong to another organization |
+| `skipped` | Items deliberately not touched, e.g. an asset still referenced by content |
+
+### Bulk Tagging
 
 ```bash
 # Add tags
@@ -76,37 +116,73 @@ POST /api/v1/pro/assets/bulk/tags/remove
 
 ### Bulk Download
 
-Download selected assets as a ZIP archive:
+Two options:
+
+<Tabs>
+  <Tab title="Signed URLs" icon="link">
+    ```bash
+    POST /api/v1/pro/assets/bulk/download
+    { "assetIds": ["uuid-1", "uuid-2", "uuid-3"] }
+    ```
+
+    Returns one short-lived signed URL per asset (10 minutes). Storage keys are never returned, so a link cannot be replayed indefinitely or used to guess other objects.
+  </Tab>
+  <Tab title="Server-side ZIP" icon="file-archive">
+    ```bash
+    POST /api/v1/pro/assets/bulk/download/zip
+    { "assetIds": ["uuid-1", "uuid-2", "uuid-3"] }
+    ```
+
+    Streams a single ZIP archive. Duplicate filenames are de-duplicated, and the total is capped by `BULK_ZIP_MAX_BYTES`.
+  </Tab>
+</Tabs>
+
+### Bulk Content Operations
+
+Beyond assets, the plugin can change the status of many content items at once:
 
 ```bash
-POST /api/v1/pro/assets/bulk/download
+POST /api/v1/pro/content/bulk/status
 {
-  "assetIds": ["uuid-1", "uuid-2", "uuid-3"]
+  "contentIds": ["uuid-1", "uuid-2", "uuid-3"],
+  "operation": "publish"
 }
 ```
 
-### Bulk Info
+Operations: `publish`, `unpublish`, `archive`, `delete`.
 
-Get aggregate information for selected assets:
+<Callout kind="info">
+  Status changes are delegated to Studio's own content service, so versions, publish hooks, and events fire exactly as they do for a single item. A bulk publish is not a shortcut around workflow rules.
+</Callout>
+
+Large selections are processed in the background; the response says so, and the operation log records the outcome.
+
+### Bulk Info
 
 ```bash
 POST /api/v1/pro/assets/bulk/info
-{
-  "assetIds": ["uuid-1", "uuid-2", "uuid-3"]
-}
+{ "assetIds": ["uuid-1", "uuid-2", "uuid-3"] }
 ```
 
 Returns total size, file type breakdown, and reference counts.
 
 ## API Reference
 
-All bulk asset endpoints are in the [Studio API Reference](https://docs.studio.roadbeat.dev/api-reference/overview) under the bulk asset tags.
+All bulk endpoints are in the [Studio API Reference](https://docs.studio.roadbeat.dev/api-reference/overview) under the bulk tags.
 
 | Endpoint | Description |
 |----------|-------------|
 | `POST /api/v1/pro/assets/bulk/move` | Move assets to folder |
-| `POST /api/v1/pro/assets/bulk/delete` | Delete multiple assets |
+| `POST /api/v1/pro/assets/bulk/delete` | Delete multiple assets (to trash) |
 | `POST /api/v1/pro/assets/bulk/tags/add` | Add tags to assets |
 | `POST /api/v1/pro/assets/bulk/tags/remove` | Remove tags from assets |
-| `POST /api/v1/pro/assets/bulk/download` | Download as ZIP |
+| `POST /api/v1/pro/assets/bulk/download` | Presigned download URLs |
+| `POST /api/v1/pro/assets/bulk/download/zip` | Server-side ZIP archive |
 | `POST /api/v1/pro/assets/bulk/info` | Aggregate info |
+| `GET /api/v1/pro/assets/bulk/ops` | Recent bulk operations |
+| `GET /api/v1/pro/assets/bulk/ops/:id` | One operation with its item list |
+| `POST /api/v1/pro/assets/bulk/ops/:id/undo` | Undo an operation |
+| `GET /api/v1/pro/assets/bulk/trash` | List recoverable assets |
+| `POST /api/v1/pro/assets/bulk/trash/restore` | Restore assets from trash |
+| `POST /api/v1/pro/content/bulk/status` | Publish, unpublish, archive, or delete content |
+| `POST /api/v1/pro/content/bulk/delete` | Delete content items |

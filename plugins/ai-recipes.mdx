@@ -17,7 +17,7 @@ These recipes take you from a fresh `pro-ai` installation to a working, governed
 
 - Studio with the `pro-ai` plugin installed and licensed (Team tier or above)
 - An admin account (provider and routing changes require admin permissions)
-- `PRO_AI_VAULT_KEK` set to a random 32-byte base64 key in production — without it the vault falls back to an **insecure development key** and logs a loud warning
+- `PRO_AI_VAULT_KEK` set to a random 32-byte base64 key — **required in production**, where the vault refuses to start without it rather than using a derivable dev key (outside production an unset key falls back to an insecure dev key with a loud warning)
 - For the semantic index (optional): the [pgvector](https://github.com/pgvector/pgvector) extension installed on your PostgreSQL server
 
 ## How the pieces fit
@@ -290,7 +290,7 @@ Instance-level defaults (per-org route/provider settings override them where not
 | `AI_VELOCITY_FACTOR`                | `4`                     | Org spend anomaly: current window vs rolling baseline multiplier                                  |
 | `AI_VELOCITY_MIN_TOKENS`            | `20000`                 | Anomaly floor (near-idle orgs never alert)                                                        |
 | `AI_VELOCITY_ENFORCE`               | `alert`                 | `hard` upgrades org-wide anomalies from an admin alert to a 429 block                             |
-| `PRO_AI_VAULT_KEK`                  | _(dev fallback)_        | **Set in production**: random 32-byte base64 key encrypting the credential vault                  |
+| `PRO_AI_VAULT_KEK`                  | _(required in prod)_    | Random 32-byte base64 key encrypting the credential vault; the plugin will not start without it in production |
 
 ## Checking your egress posture
 

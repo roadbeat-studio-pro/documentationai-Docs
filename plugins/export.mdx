@@ -1,31 +1,52 @@
 ---
 title: Content Export
-description: Export content as JSON or CSV with configurable field mappings, reusable templates, and transforms.
+description: Export content as JSON, NDJSON, or CSV with field mappings, reusable templates, scheduled runs, and S3 or webhook delivery.
 ---
 
 ## Overview
 
-The **Content Export** plugin provides advanced content export capabilities beyond CE's basic backup/restore. Export filtered content as JSON or CSV with configurable field selection, column renaming, data transforms, and reusable export templates.
+The **Content Export** plugin provides advanced content export capabilities beyond CE's basic backup/restore. Export filtered content as JSON, NDJSON, or CSV with configurable field selection, column renaming, data transforms, reusable templates, and recurring scheduled runs delivered to a bucket or a signed webhook.
 
 ## Key Features
 
-- **JSON and CSV formats** — CSV follows RFC 4180 with proper quoting/escaping
+- **JSON, NDJSON, and CSV formats** — CSV follows RFC 4180 with proper quoting and escaping
+- **Spreadsheet-safe CSV** — cells that would execute as formulas are neutralized
+- **Complete columns** — the CSV header is the union of all records, not just the first one
 - **Field selection and mapping** — choose which fields to include and rename columns
 - **Transforms** — lowercase, uppercase, trim, date formatting, truncation, JSON stringify
 - **Content filtering** — by type, status, locale, date range, and search query
 - **Reusable templates** — save export configurations for repeated use
-- **Inline download** — export results download directly (no external storage)
-- **Auto-expiry** — export job results are cleaned up after 7 days
+- **Scheduled exports** — run a template on a cron schedule and deliver the result
+- **EU-sovereign delivery** — S3-compatible buckets or HMAC-signed webhooks, credentials encrypted per organization
+- **Automatic cleanup** — export files are deleted after their retention window
 
 ## For Admins: Setup
 
-### Migration
+### Migrations
 
 ```bash
 psql -U postgres -d roadbeat_studio -f plugins/pro-export/migrations/001_create_export_tables.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-export/migrations/002_expiry_and_ndjson.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-export/migrations/003_unique_default_template.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-export/migrations/004_create_export_schedules.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-export/migrations/005_storage_backed_exports.sql
 ```
 
-Tables created: `pro_export_jobs`, `pro_export_templates`
+Tables created: `pro_export_jobs`, `pro_export_templates`, `pro_export_schedules`, `pro_export_schedule_runs`
+
+### Configuration
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `EXPORT_RETENTION_DAYS` | `7` | How long a finished export file is kept (1–30; per-organization override available) |
+| `EXPORT_MAX_RECORDS` | `250000` | Largest export the job will produce |
+| `EXPORT_INLINE_MAX_BYTES` | `1048576` (1 MB) | Above this, the result goes to object storage instead of the database |
+| `EXPORT_CSV_RAW` | unset | Set to `true` to disable formula neutralization (see below) |
+| `EXPORT_DELIVERY_KEK` | — | base64 32-byte key encrypting stored delivery credentials; falls back to `INTEGRATIONS_KEK` |
+
+<Callout kind="alert">
+  Without `EXPORT_DELIVERY_KEK` or `INTEGRATIONS_KEK`, creating a schedule **with** delivery credentials is refused rather than storing the secret unencrypted. Schedules without credentials still work.
+</Callout>
 
 ## For Editors: Exporting Content
 
@@ -36,7 +57,7 @@ Tables created: `pro_export_jobs`, `pro_export_templates`
     Go to **Content Export** in the sidebar.
   </Step>
   <Step title="Configure the export">
-    Select content type, status filter, locale, date range, and output format (JSON or CSV).
+    Select content type, status filter, locale, date range, and output format.
   </Step>
   <Step title="Select fields">
     Choose which fields to include. Optionally rename columns and apply transforms.
@@ -45,9 +66,27 @@ Tables created: `pro_export_jobs`, `pro_export_templates`
     Click **Export**. The job processes in the background.
   </Step>
   <Step title="Download the result">
-    Once complete, download the file directly from the job detail page.
+    Once complete, download the file from the job detail page.
   </Step>
 </Steps>
+
+### Formats
+
+| Format | Best for |
+|--------|----------|
+| `json` | A single array; easiest to re-import |
+| `ndjson` | One record per line; streams well and suits large exports and log pipelines |
+| `csv` | Spreadsheets and BI tools |
+
+### CSV Safety
+
+A content field beginning with `=`, `+`, `-`, `@`, a tab, or a carriage return is treated as a **formula** by Excel and LibreOffice. Because content is publisher-supplied, any editor could otherwise plant a payload that runs on the machine of whoever opens the export.
+
+Studio Pro prefixes those cells with an apostrophe and force-quotes them, so they display literally. Completed CSV jobs carry a **Formula-safe** badge in the download UI.
+
+<Callout kind="alert">
+  Setting `EXPORT_CSV_RAW=true` exports the raw values instead. Only do that for a machine-to-machine pipeline that never opens the file in a spreadsheet.
+</Callout>
 
 ### Export Templates
 
@@ -58,8 +97,7 @@ POST /api/v1/pro/export/templates
 {
   "name": "Weekly News Export",
   "format": "csv",
-  "contentTypeId": "news",
-  "filters": { "status": "published", "locale": "en" },
+  "filters": { "contentTypeId": "news", "status": "published", "locale": "en" },
   "fieldMappings": [
     { "source": "data.headline.en", "target": "Title" },
     { "source": "data.description.en", "target": "Description", "transform": "trim" },
@@ -74,6 +112,45 @@ Run a template with one click:
 POST /api/v1/pro/export/templates/:id/run
 ```
 
+### Scheduled Exports
+
+A schedule runs a template on a cron expression and delivers the file. Open the **Schedules** tab in Content Export.
+
+<Steps>
+  <Step title="Pick a template and a cadence">
+    Choose the template to run and a cron expression. Four presets are offered — hourly, daily, Mondays, and the 1st of the month. All cron expressions are evaluated in **UTC**.
+  </Step>
+  <Step title="Choose a delivery target">
+    Keep the file in Studio, upload it to an S3-compatible bucket, or POST it to a signed webhook.
+  </Step>
+  <Step title="Enter credentials">
+    Access keys and signing secrets are write-only: they are sent once, encrypted per organization, and never returned. Leave them blank when editing a schedule to keep the stored ones.
+  </Step>
+  <Step title="Watch the run history">
+    Expand a schedule to see each run — status, start time, record count, delivery target, and the error message when a run failed.
+  </Step>
+</Steps>
+
+#### Delivery targets
+
+<Tabs>
+  <Tab title="S3-compatible" icon="database">
+    Requests are signed with AWS Signature V4, so any S3-compatible endpoint works — including European providers and self-hosted MinIO.
+
+    Configuration: `endpoint`, `bucket`, `region`, optional `prefix`.
+    Credentials: `accessKeyId`, `secretAccessKey`.
+  </Tab>
+  <Tab title="Signed webhook" icon="webhook">
+    The file is POSTed to your URL with an `X-Roadbeat-Signature` header — an HMAC-SHA256 of the body using your signing secret, so the receiver can verify the payload really came from Studio.
+
+    Configuration: `url`. Credentials: `signingSecret`.
+  </Tab>
+</Tabs>
+
+<Callout kind="tip">
+  Prefer a European or self-hosted bucket. Export files contain your organization's content, and the destination is where that content ends up living.
+</Callout>
+
 ### Available Transforms
 
 | Transform | Description | Example |
@@ -84,6 +161,10 @@ POST /api/v1/pro/export/templates/:id/run
 | `date` | Format as ISO date | timestamp → "2026-03-09" |
 | `truncate` | Truncate to N characters | Long text → "Long te..." |
 | `json_stringify` | Convert object to JSON string | `{a:1}` → `'{"a":1}'` |
+
+### Retention
+
+Finished exports are deleted automatically — the file in object storage as well as the database row's inline copy — so an expired export leaves nothing behind. The default window is 7 days; an administrator can set a per-organization value between 1 and 30 days.
 
 ## API Reference
 
@@ -98,3 +179,9 @@ All export endpoints are in the [Studio API Reference](https://docs.studio.roadb
 | `GET /api/v1/pro/export/templates` | List templates |
 | `POST /api/v1/pro/export/templates` | Create template |
 | `POST /api/v1/pro/export/templates/:id/run` | Run a template |
+| `GET /api/v1/pro/export/schedules` | List schedules |
+| `POST /api/v1/pro/export/schedules` | Create a schedule |
+| `PUT /api/v1/pro/export/schedules/:id` | Update a schedule (pause, re-time, re-target) |
+| `POST /api/v1/pro/export/schedules/:id/run` | Force a run now |
+| `GET /api/v1/pro/export/schedules/:id/runs` | Run history |
+| `DELETE /api/v1/pro/export/schedules/:id` | Delete a schedule |
