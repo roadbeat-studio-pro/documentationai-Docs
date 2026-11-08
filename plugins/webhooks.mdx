@@ -22,13 +22,9 @@ The **Advanced Webhooks** plugin extends CE's basic webhook system with enterpri
 
 ### Migrations
 
-```bash
-psql -U postgres -d roadbeat_studio -f plugins/pro-webhooks/migrations/001_create_webhook_retry_tables.sql
-psql -U postgres -d roadbeat_studio -f plugins/pro-webhooks/migrations/002_create_incoming_webhook_tables.sql
-psql -U postgres -d roadbeat_studio -f plugins/pro-webhooks/migrations/003_add_dlq_alert_debounce.sql
-```
+The migrations ship in `plugins/pro-webhooks/migrations/` (`001_create_webhook_retry_tables.sql`, `002_create_incoming_webhook_tables.sql`, `003_add_dlq_alert_debounce.sql`) and are applied by Studio at startup — see [Installation](/installation#database-migrations).
 
-Tables created: `pro_webhook_retries`, `pro_dead_letters`, `pro_incoming_webhooks`, `pro_incoming_webhook_logs`
+Tables created: `pro_webhook_retry_configs`, `pro_webhook_delivery_log` (deliveries, retries, and the dead letter queue), `pro_incoming_webhooks`, `pro_incoming_webhook_logs`
 
 ### Configuration
 
@@ -42,25 +38,47 @@ Tables created: `pro_webhook_retries`, `pro_dead_letters`, `pro_incoming_webhook
 
 Both retention windows can be overridden per organization.
 
+### The Webhook Delivery Page
+
+Open **Settings → Webhook Delivery** and choose one of your organization's webhooks from the list at the top (with a single webhook, it is selected for you). The page has four tabs:
+
+| Tab | What it shows |
+|-----|---------------|
+| **Delivery Log** | Every delivery with status, HTTP code, duration, attempt count, payload, and response — filterable by status and event |
+| **Dead Letter Queue** | Permanently failed deliveries, with **Retry**, **Retry All**, and **Purge** |
+| **Retry Config** | Backoff settings, DLQ and alert options, and a live preview of the retry schedule |
+| **Statistics** | Organization-wide totals and, for the chosen webhook, success rate and average duration — headed with the webhook's name |
+
+Webhooks themselves are created under **Settings → Webhooks** (Studio CE); this page manages how their deliveries are retried and inspected.
+
 ### Retry Configuration
 
 ```bash
 PUT /api/v1/pro/webhooks/:webhookId/retry-config
 {
-  "maxRetries": 5,
+  "maxAttempts": 5,
   "initialDelayMs": 1000,
-  "maxDelayMs": 300000,
+  "maxDelayMs": 3600000,
   "backoffMultiplier": 2,
-  "retryOnStatuses": [500, 502, 503, 504]
+  "timeoutMs": 10000,
+  "retryableCodes": [408, 429, 500, 502, 503, 504],
+  "dlqEnabled": true,
+  "alertOnDlq": true,
+  "alertEmail": "ops@example.com"
 }
 ```
+
+The values above are the defaults. Limits: `maxAttempts` 1–20, `initialDelayMs` 100–60,000, `maxDelayMs` 1,000–86,400,000, `backoffMultiplier` 1–10, `timeoutMs` 1,000–60,000. `autoDisableAfter` (1–100 consecutive failures) optionally disables a webhook that keeps failing.
 
 Preview the resulting schedule:
 
 ```bash
 GET /api/v1/pro/webhooks/:webhookId/retry-schedule
-# Returns: [1s, 2s, 4s, 8s, 16s] — based on current config
+# → { "data": [ { "attempt": 2, "delayMs": 1000, "scheduledAt": "2026-11-08T10:00:01.000Z" },
+#               { "attempt": 3, "delayMs": 2000, "scheduledAt": "2026-11-08T10:00:03.000Z" }, … ] }
 ```
+
+One entry per retry (`maxAttempts - 1`). Real delays get ±10% jitter, so the times are projections.
 
 <Callout kind="info">
   Retries are delivered by a background processor that claims due deliveries atomically, so several Studio nodes can run side by side without double-sending. Nothing needs to be triggered by hand.
@@ -106,10 +124,15 @@ POST /api/v1/pro/incoming-webhooks
   "slug": "github-deploy",
   "description": "Triggered on successful deployment",
   "action_type": "create_content",
-  "config": { "contentTypeId": "news" },
+  "config": {
+    "contentTypeId": "7f3c2a10-5b8e-4c1d-9a6f-2e4b8c0d1f3a",
+    "fieldMappings": { "title": "deployment.environment" }
+  },
   "is_active": true
 }
 ```
+
+`action_type` is one of `create_content`, `update_content`, `trigger_workflow`, or `custom`. For `create_content`, `config.contentTypeId` is the **UUID** of the target content type (not its slug), and `fieldMappings` maps each content field (key) to a dot-path in the incoming payload (value, `items[0]` indexes allowed); a `slug` key sets the slug. The item is created as a draft.
 
 External systems send data to:
 
@@ -132,7 +155,7 @@ Requests older than the replay window are rejected, so a captured payload cannot
 
 ### Secret handling
 
-The signing secret is returned **once**, when you create the webhook or regenerate its secret. After that, list and detail responses show only a masked hint.
+The signing secret is returned **once**, when you create the webhook (`POST /api/v1/pro/incoming-webhooks`) or regenerate it (`POST /api/v1/pro/incoming-webhooks/:id/regenerate-secret`). Every other response — list, detail, and `PUT` updates — shows only a masked hint.
 
 <Callout kind="alert">
   Copy the secret when it is shown. It cannot be retrieved later — if it is lost, regenerate it, which invalidates the previous secret immediately.

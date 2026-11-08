@@ -24,13 +24,18 @@ The **Content Export** plugin provides advanced content export capabilities beyo
 
 ### Migrations
 
+The Studio API applies and tracks plugin migrations itself at startup, so these run automatically — a new one takes effect on the next API start. Run them by hand only if you set `PLUGIN_MIGRATIONS=off` because a deploy step applies them; see [Installation](/installation) for details.
+
 ```bash
 psql -U postgres -d roadbeat_studio -f plugins/pro-export/migrations/001_create_export_tables.sql
 psql -U postgres -d roadbeat_studio -f plugins/pro-export/migrations/002_expiry_and_ndjson.sql
 psql -U postgres -d roadbeat_studio -f plugins/pro-export/migrations/003_unique_default_template.sql
 psql -U postgres -d roadbeat_studio -f plugins/pro-export/migrations/004_create_export_schedules.sql
 psql -U postgres -d roadbeat_studio -f plugins/pro-export/migrations/005_storage_backed_exports.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-export/migrations/006_job_error_message.sql
 ```
+
+Migration 006 adds `pro_export_jobs.error_message`, which keeps the reason a job failed; it is idempotent and is applied on the next API start.
 
 Tables created: `pro_export_jobs`, `pro_export_templates`, `pro_export_schedules`, `pro_export_schedule_runs`
 
@@ -57,7 +62,7 @@ Tables created: `pro_export_jobs`, `pro_export_templates`, `pro_export_schedules
     Go to **Content Export** in the sidebar.
   </Step>
   <Step title="Configure the export">
-    Select content type, status filter, locale, date range, and output format.
+    Pick the content type and locale from the lists of your organization's content types and enabled locales (or keep **All content types** / **All locales**), then set the status filter, date range, and output format.
   </Step>
   <Step title="Select fields">
     Choose which fields to include. Optionally rename columns and apply transforms.
@@ -69,6 +74,10 @@ Tables created: `pro_export_jobs`, `pro_export_templates`, `pro_export_schedules
     Once complete, download the file from the job detail page.
   </Step>
 </Steps>
+
+### Job Status
+
+The job list shows each job's status — **Pending**, **Processing**, **Completed**, **Failed**, or **Expired** — in your interface language. A failed job keeps the reason it failed (the first 1,000 characters of the error) and shows it under the job, so you can fix the cause and run the export again. Through the API, the reason is the job's `error_message` field (`null` unless the status is `failed`).
 
 ### Formats
 

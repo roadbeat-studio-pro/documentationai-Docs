@@ -5,10 +5,11 @@ description: Pessimistic content locking prevents concurrent editing conflicts w
 
 ## Overview
 
-The **Content Locking** plugin prevents concurrent editing conflicts by allowing users to acquire locks on content items. When a user starts editing, an **exclusive lock** is acquired automatically — other users are blocked from saving changes until the lock is released.
+The **Content Locking** plugin prevents concurrent editing conflicts by allowing users to acquire locks on content items. As soon as a user makes their first change in the editor, an **exclusive lock** is acquired automatically — other users are blocked from saving changes until the lock is released.
 
 ## Key Features
 
+- **Lock on first edit** — the editor panel acquires the lock with your first keystroke or field change; just opening an item does not lock it
 - **Exclusive locks** — blocks other users from saving, deleting, or publishing (default)
 - **Advisory locks** — warns other users but doesn't block (for soft collaboration)
 - **Auto-expiring** — locks expire after a configurable TTL (default 5 minutes) without a heartbeat
@@ -22,6 +23,8 @@ The **Content Locking** plugin prevents concurrent editing conflicts by allowing
 ## For Admins: Configuration
 
 ### Migrations
+
+The Studio API applies the plugin's migrations **automatically on its next start** — see [Installation](/installation). If your deployment applies them in a separate step (`PLUGIN_MIGRATIONS=off`), run them in order:
 
 ```bash
 psql -U postgres -d roadbeat_studio -f plugins/pro-locking/migrations/001_create_content_locks_table.sql
@@ -53,11 +56,11 @@ Navigate to **Content Locks** in the sidebar to view all active locks. From here
 
 ### Automatic Locking
 
-When you open a content item in the editor, the **Lock** sidebar panel automatically:
+When you open a content item in the editor, the **Lock Status** sidebar panel shows whether anyone holds a lock. Opening an item only to read it does not lock it. Then the panel:
 
-1. Acquires an exclusive lock on the content
-2. Shows the lock status (locked by you)
-3. Sends heartbeat pings every 2 minutes to keep the lock alive
+1. Acquires an exclusive lock on your **first edit** — the first input or change anywhere in the editor area (or immediately, if you click **Lock for Editing**)
+2. Shows the lock status (locked by you) and when it expires
+3. Sends heartbeat pings every 2 minutes to keep the lock alive, and re-acquires the lock if it expired in the meantime
 4. Releases the lock when you navigate away — **including on tab or browser close**, via a `sendBeacon` call, so teammates are unblocked within seconds instead of after the TTL
 
 ### If Content Is Locked by Someone Else
@@ -65,8 +68,7 @@ When you open a content item in the editor, the **Lock** sidebar panel automatic
 If another user holds the lock, you'll see:
 
 - **Who** holds the lock
-- **When** it was acquired
-- The content opens in **read-only mode** — you cannot save changes
+- That **saving is blocked** until the lock is released — save, delete and publish requests are rejected with `403`; your edits do not acquire a lock
 
 You can click **Request access** to send the current holder a polite takeover notification, wait for them to finish, or ask an admin to force-unlock.
 
@@ -80,6 +82,17 @@ You can click **Request access** to send the current holder a polite takeover no
 ## Event Integration
 
 The plugin guards `content.beforeUpdate`, `content.beforeDelete`, and `content.beforePublish`. When another user tries to save, delete, or publish content that has an exclusive lock held by someone else, the event is **prevented** and CE throws a `ForbiddenException` — a lock that didn't survive a delete or publish would be a false safety promise. Advisory locks stay warn-only.
+
+It also emits two events, which the [Notifications](/plugins/notifications) plugin turns into in-app notifications:
+
+| Event | Recipient |
+|-------|-----------|
+| `lock.force_unlocked` | The editor whose lock an admin broke |
+| `lock.takeover.requested` | The current lock holder, when someone clicks **Request access** |
+
+<Callout kind="info">
+  Before the November 2026 update these two events never left the plugin, so neither notification was delivered, and the editor panel only showed the lock status — a lock existed only if someone clicked the lock button. Both now work as described on this page.
+</Callout>
 
 ## API Reference
 

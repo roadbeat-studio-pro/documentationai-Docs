@@ -26,7 +26,7 @@ Every connector, every byte of egress, and every autonomous action passes throug
 - **Governed run lifecycle** — egress policy + consent + redaction enforced at every external step, with HITL pauses for destructive/egress actions, retries with backoff, and a dead-letter replay
 - **AI Studio Agent** — a natural-language planner over a governed tool registry, with assist/auto modes and per-call confirmation for anything destructive or egress-bound
 - **European by default** — Activepieces (MIT) engine + Augmentor (local Mistral) AI, self-hostable end-to-end, with a data-residency label on every connector
-- **Localized admin UI** — every surface is translated across the core EU locales (de, fr, es, it, nl, pl, pt), with English fallback for the rest
+- **Localized admin UI** — every surface, including error messages, is translated into all [24 EU languages](/languages) and follows the Studio interface language
 
 ## Architecture
 
@@ -209,7 +209,7 @@ When the Hub is active, editors get a **Run a flow** toolbar action on content i
 | Advanced governance (egress-policy editing, GDPR audit export) | **Business** | `integrations_advanced_governance` |
 | Multi-org federation / SSO-bound credential policies | **Enterprise** | `integrations_federation` |
 
-Four numeric license limits cap org usage (`0` / unset = unlimited; **Team defaults** in parentheses). Count caps are enforced at create time (HTTP 403); daily ceilings are folded into the per-org quota checks as the tighter of admin policy ∧ license limit (HTTP 429):
+A capability above the licensed tier answers `403 INTEGRATIONS_FEATURE_NOT_LICENSED` (`params.feature`, `params.tier`). Four numeric license limits cap org usage (`0` / unset = unlimited; **Team defaults** in parentheses). Count caps are enforced at create time (`403 INTEGRATIONS_LIMIT_EXCEEDED` with `params.resource` and `params.limit`); daily ceilings are folded into the per-org quota checks as the tighter of admin policy ∧ license limit (`429 INTEGRATIONS_QUOTA_EXCEEDED` with `params.reason`):
 
 | Limit | Effect |
 |---|---|
@@ -241,10 +241,13 @@ All endpoints live under `/api/v1`. See the [Studio API Reference](https://studi
 
 | Endpoint | Description |
 |---|---|
-| `GET/POST /pro/flows` | List / create flows |
-| `GET/PUT /pro/flows/:id` | Get / update a flow (PUT appends a version) |
+| `GET/POST /pro/flows` | List / create flows (a new flow starts at version 1) |
+| `GET/PUT/DELETE /pro/flows/:id` | Get / update / delete a flow (PUT appends a version) |
+| `GET /pro/flows/:id/versions` · `/versions/:version` | List a flow's immutable versions / get one version's definition |
 | `POST /pro/flows/:id/activate` · `/pause` | Compile-and-activate / pause a flow |
 | `POST /pro/flows/:id/run` | Manual run (returns the run id) |
+| `GET/POST /pro/flows/:id/triggers` | List / add triggers (an inbound-webhook trigger returns its secret once) |
+| `PATCH/DELETE /pro/flows/:id/triggers/:triggerId` | Update (config / enabled) / delete a trigger |
 | `POST /pro/flows/generate` | AI: natural-language → `FlowDefinition` (Business) |
 | `GET /pro/integrations/runs` · `/runs/:id` | Run history / a run with its step timeline |
 | `POST /pro/integrations/runs/:id/retry` · `/cancel` · `/confirm` | Replay / cancel / resume a run |
@@ -259,3 +262,9 @@ All endpoints live under `/api/v1`. See the [Studio API Reference](https://studi
 | `POST /pro/agent/actions/:id/confirm` · `/deny` | Confirm (grant consent + execute) or deny a pending action |
 
 Governance, consent, audit, and quota endpoints are listed in [Integration Hub Governance](/plugins/integrations-governance#api-reference).
+
+### Ids and errors
+
+Flows, runs, triggers, connections, consents, and agent sessions/actions are identified by UUIDs. A path id that is not a valid UUID is treated as a resource that does not exist: the API answers `404` with the generic code `NOT_FOUND`. A well-formed id that is unknown in your organization answers `404` with a specific code — `FLOW_NOT_FOUND`, `RUN_NOT_FOUND`, `TRIGGER_NOT_FOUND`, `CONNECTION_NOT_FOUND`, `CONSENT_NOT_FOUND`, `AGENT_SESSION_NOT_FOUND`, or `AGENT_ACTION_NOT_FOUND`.
+
+Every error carries a stable `code` and its values in `params` (for example `RUN_NOT_RETRYABLE` with `params.status`, or `CONNECTION_REAUTH_REQUIRED` when an OAuth connection must be reconnected). The admin screens show these in the interface language. All Integration Hub codes are listed in [API Error Codes](/help-center/troubleshooting/error-codes#integration-hub).

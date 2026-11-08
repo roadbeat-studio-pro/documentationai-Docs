@@ -95,7 +95,7 @@ Per-org limits bound the Hub's blast radius. The admin-configurable policy lives
 
 | Limit | Where it's enforced | Team default |
 |---|---|---|
-| Runs / minute · runs / day | Admission check at enqueue (interactive paths → HTTP 429) | 120 / min · 5,000 / day |
+| Runs / minute · runs / day | Admission check at enqueue (interactive paths → `429 INTEGRATIONS_QUOTA_EXCEEDED`, `params.reason`) | 120 / min · 5,000 / day |
 | Concurrent runs | The run worker only starts a run when the org is below its cap | 8 |
 | Egress bytes / day | Checked + metered in the executor before each call | 1 GiB |
 | Agent tokens / day | Checked + metered in the agent | 1,000,000 |

@@ -11,7 +11,7 @@ The **Content Import** plugin lets you bulk-import content from external sources
 
 - **Five source formats** — JSON, CSV, XML, WordPress (WXR), and Markdown with frontmatter
 - **Schema validation** — every record is validated against the target content type before insert
-- **Field mapping** — map source columns/keys to content type fields with transforms
+- **Field mapping** — map source columns/keys to content type fields with transforms; target suggestions come from the content type's form, and dot paths fill nested fields
 - **Asset and relation transforms** — turn an image URL into a Studio asset, or a foreign value into a content relation
 - **Duplicate detection** — detect by slug or any field value, including nested paths
 - **Preview mode** — dry-run on the first N records before committing
@@ -22,6 +22,8 @@ The **Content Import** plugin lets you bulk-import content from external sources
 ## For Admins: Setup
 
 ### Migrations
+
+The Studio API applies and tracks plugin migrations itself at startup, so these run automatically — a new one takes effect on the next API start. Run them by hand only if you set `PLUGIN_MIGRATIONS=off` because a deploy step applies them; see [Installation](/installation) for details.
 
 ```bash
 psql -U postgres -d roadbeat_studio -f plugins/pro-import/migrations/001_create_import_tables.sql
@@ -54,8 +56,11 @@ Inline uploads (`fileContent`) are capped at 5 MB by the API. For larger files, 
   <Step title="Choose the source format">
     Pick JSON, CSV, XML, WordPress, or Markdown. Each format shows its own options — a record selector for XML, a post-type picker for WordPress, a ZIP-bundle switch for Markdown.
   </Step>
+  <Step title="Pick the target content type">
+    Choose the content type from the list of your organization's content types — there is no id to type in.
+  </Step>
   <Step title="Upload your file and map fields">
-    WordPress and Markdown offer a preset that fills the mapping table with the field names their parser produces, so a migration usually needs no hand-mapping.
+    Each mapping target field suggests the content type's form fields as you type (see [Field Mapping](#field-mapping)). WordPress and Markdown offer a preset that fills the mapping table with the field names their parser produces, so a migration usually needs no hand-mapping.
   </Step>
   <Step title="Preview (recommended)">
     Run a preview to see how the first records would be imported, including schema-validation errors and duplicate conflicts.
@@ -110,7 +115,7 @@ Inline uploads (`fileContent`) are capped at 5 MB by the API. For larger files, 
 
 ### Field Mapping
 
-Map each target content type field to a source field:
+Map each target field of the content type to a source field. The **key** of a mapping is the target path *inside the content item's data*; the **value** is the source column, key or dot path in your file:
 
 ```json
 {
@@ -118,17 +123,33 @@ Map each target content type field to a source field:
   "source": "csv",
   "config": {
     "fieldMappings": {
-      "data.headline.en": "Title",
-      "data.body.en": "Body",
-      "data.classification.category": { "source": "Category", "transform": "lowercase" },
-      "data.published_date": { "source": "Date", "transform": "date" }
+      "headline.en": "Title",
+      "article_body.en": "Body",
+      "seo.meta_title": "SEO Title",
+      "dates.date_published": { "source": "Date", "transform": "date" }
     },
     "slugField": "Slug",
     "skipDuplicates": true,
-    "duplicateKey": "data.external_id"
+    "duplicateKey": "headline.en"
   }
 }
 ```
+
+#### What to enter as a target
+
+- **Use the field ids the mapping table suggests.** They come from the content type's editor form and are the exact paths the content editor reads and writes — for example `headline`, `seo.meta_title` or `dates.date_published`. Platform-managed blocks (`identifier`, `ai_metadata`, `moderation`, …) are not offered because Studio fills them itself.
+- **Dots create nested values.** `seo.meta_title` is written as `{ "seo": { "meta_title": … } }`, creating the intermediate objects as needed. A target without dots writes a top-level field, exactly as before.
+- **Translatable fields take a language suffix.** Text the editor stores per language (such as `headline`) is addressed as `headline.en`, `headline.de`, …
+- **Registry form ids are translated for you.** Some content types use a different id in their Schema Registry form than in storage — the quote type's `quote_text` is stored at `content.text`, its `author` at `attribution.author`. A mapping (or `duplicateKey` / `slugField`) that names the registry id is rewritten to the storage path when the job is created, previewed and processed, so the imported text shows up in the editor.
+- **Do not prefix targets with `data.`** — the target is already relative to the content data.
+
+<Callout kind="info">
+  `duplicateKey` is a target path as well (or `slug`). It must be produced by one of your mappings — a key whose first segment matches no mapping target is rejected with `400` (`IMPORT_DUPLICATE_KEY_UNMAPPED`) when the job is created, because it could never match anything. Nested keys such as `headline.en` are compared at their full path.
+</Callout>
+
+#### Generated slugs
+
+`slugField` names a **source** column to take the slug from. Without it, Studio derives the slug from the record's `headline`, `title` or `name`. Content types that have none of these (quotes, jokes, check-ins, …) get a slug from the first meaningful text instead — fields with text-like names (`text`, `quote`, `summary`, `caption`, `label`, …) are tried before others such as `author`, and URLs, `identifier` and `seo` blocks are skipped. Only when no usable text exists does the slug fall back to `import-<timestamp>-<random>`. Slugs are made unique per content type and locale.
 
 ### Available Transforms
 
@@ -150,7 +171,7 @@ The `asset` transform turns an image-URL column into a real Studio asset:
 
 ```json
 {
-  "data.image": {
+  "image": {
     "source": "ImageUrl",
     "transform": "asset",
     "assetConfig": { "onError": "null" }
@@ -162,9 +183,11 @@ Downloads are checked against the file's actual magic bytes — not the URL exte
 
 The `relation` transform resolves a foreign value into a content id:
 
+Both transforms write to nested targets like any other mapping.
+
 ```json
 {
-  "data.author": {
+  "author": {
     "source": "AuthorSlug",
     "transform": "relation",
     "relationConfig": { "contentType": "person", "matchField": "slug", "onMiss": "null" }

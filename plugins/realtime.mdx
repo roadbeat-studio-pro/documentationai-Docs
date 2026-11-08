@@ -17,11 +17,18 @@ The **Real-time** plugin adds WebSocket-based live collaboration to Studio. See 
 - **Event broadcasting** — content updates, publishes, deletes, and comments broadcast to all connected users
 - **Direct notifications** — send notifications to specific users via WebSocket
 - **Connection management** — admin API for monitoring connections, presence, and disconnecting users
-- **No database tables** — connection/presence state is in-memory per instance (broadcasts cross instances via Redis)
+- **Collaborative editing relay** — Yjs (CRDT) document updates are relayed between the editors of a content item and merged into one stored document, so late joiners catch up
+- **Minimal persistence** — connection and presence state is in-memory per instance (broadcasts cross instances via Redis); only the merged collaborative-editing document is stored
 
 ## For Admins: Configuration
 
-No migration required — this plugin stores all state in memory.
+### Migration
+
+The plugin has one migration, `001_realtime_docs.sql`, which creates `pro_realtime_docs` — one merged Yjs document per content item (capped at 2 MB). The Studio API applies plugin migrations automatically at startup; run it by hand only if you set `PLUGIN_MIGRATIONS=off`. See [Installation](/installation) for details.
+
+```bash
+psql -U postgres -d roadbeat_studio -f plugins/pro-realtime/migrations/001_realtime_docs.sql
+```
 
 ### Dependencies
 
@@ -101,6 +108,8 @@ The plugin broadcasts these events to connected clients:
 | `user:left` | `content:<contentId>` | User left content room |
 | `cursor:update` | `content:<contentId>` | Cursor position changed |
 | `typing:update` | `content:<contentId>` | A collaborator started/stopped typing |
+| `doc:update` / `doc:awareness` | `content:<contentId>` | Another editor's collaborative-document update or awareness data |
+| `doc:reset` | `content:<contentId>` | The content was saved outside the collaborative session — rebuild from the saved content |
 
 ### Client Events
 
@@ -113,6 +122,16 @@ Clients can send these events:
 | `cursor:move` | Update cursor position (validated, rate-limited) |
 | `typing:start` / `typing:stop` | Signal typing status (room members only) |
 | `presence:request` | Request current presence list (own organization only) |
+| `doc:join` | Request the stored collaborative document (answered with `doc:state`, base64 or `null`) |
+| `doc:update` | Send an incremental Yjs update (base64); relayed to the room as `doc:update` and merged into the stored document |
+| `doc:awareness` | Send ephemeral awareness data (selections, remote cursors); relayed, never stored |
+| `doc:flush` | Record the content version the collaborative session saved as |
+
+The `doc:*` messages require joining the content room with `join:content` first.
+
+### Collaborative Documents and Saves
+
+The stored document never drifts from the saved content item. A save by someone currently in the content room counts as the session saving itself — the document is kept. A save by anyone outside the room is an external edit: the stored document is deleted and the room receives `doc:reset`, so clients rebuild their state from the saved content.
 
 ## API Reference
 

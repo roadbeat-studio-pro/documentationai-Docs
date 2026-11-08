@@ -17,18 +17,30 @@ The **SSO Integration** plugin connects Studio to your enterprise identity provi
 - **Login method detection** — check if a user should use SSO or password-based login
 - **Certificate lifecycle** — one-URL IdP metadata import, multi-certificate rotation windows, and expiry warnings 30 days ahead
 - **Hardened SAML validation** — signature, `InResponseTo`, `Conditions`/`Audience`, assertion-replay and signature-wrapping protection
+- **Secrets never leave the server** — the IdP client secret is masked in every configuration response, and the SCIM token is shown exactly once
 
 ## For Admins: Configuration
 
-### Migration
+### Migrations
 
-```bash
-psql -U postgres -d roadbeat_studio -f plugins/pro-sso/migrations/001_create_sso_tables.sql
-psql -U postgres -d roadbeat_studio -f plugins/pro-sso/migrations/002_hash_scim_tokens.sql
-psql -U postgres -d roadbeat_studio -f plugins/pro-sso/migrations/003_create_certificates.sql
-```
+The migrations ship in `plugins/pro-sso/migrations/` and are applied by Studio at startup (see [Installation](/installation#database-migrations)):
+
+| File | Purpose |
+|------|---------|
+| `001_create_sso_tables.sql` | SSO configuration and role mappings |
+| `002_scim_token_hash.sql` | SCIM tokens stored as a hash, never in plaintext |
+| `003_certificates.sql` | IdP certificate inventory for rotation and expiry tracking |
 
 Tables created: `pro_sso_configs`, `pro_sso_role_mappings`, `pro_sso_certificates`
+
+### Encryption Key
+
+<Callout kind="alert">
+  **Set `PRO_SSO_SECRET_KEY` before you store an OAuth/OIDC client secret.** Without it the plugin still starts and SSO still works, but encryption is a logged no-op: the client secret is written to `pro_sso_configs` **in plaintext**. Use a 64-hex-character key (`openssl rand -hex 32`) or any passphrase, which is SHA-256-derived into a key.
+</Callout>
+
+- Secrets stored while the key was unset stay readable after you set it and are encrypted the next time the client secret is saved.
+- If the key is removed or changed later, already-encrypted secrets can no longer be decrypted and the OAuth code exchange fails — re-enter the client secret after rotating the key.
 
 ### Setting Up SAML 2.0
 
@@ -37,19 +49,24 @@ Tables created: `pro_sso_configs`, `pro_sso_role_mappings`, `pro_sso_certificate
     From your identity provider (Okta, Azure AD, etc.), obtain the SAML metadata URL or XML, entity ID, and SSO URL.
   </Step>
   <Step title="Configure SSO in Studio">
-    Navigate to the SSO configuration in Settings, or use the API:
+    Open **Settings → SSO**, or use the API:
 
     ```bash
     POST /api/v1/pro/sso/config
     {
       "provider": "saml",
+      "enabled": true,
       "entityId": "https://studio.example.com",
       "ssoUrl": "https://idp.example.com/saml/sso",
       "certificate": "-----BEGIN CERTIFICATE-----\n...",
-      "enforced": true,
-      "enforcedDomains": ["example.com"]
+      "metadataUrl": "https://idp.example.com/metadata.xml",
+      "enforceSso": true,
+      "verifiedDomains": ["example.com"],
+      "bypassEmails": ["break-glass-admin@example.com"]
     }
     ```
+
+    With a `metadataUrl`, the **Import** button next to the field fills entity ID, SSO URL, and certificates for you — see *Certificate Lifecycle & Metadata Import* below. Import reads the **saved** metadata URL, so save the configuration first.
   </Step>
   <Step title="Configure your IdP">
     In your IdP, set the ACS (Assertion Consumer Service) URL to:
@@ -65,9 +82,12 @@ Tables created: `pro_sso_configs`, `pro_sso_role_mappings`, `pro_sso_certificate
     {
       "idpAttribute": "groups",
       "idpValue": "content-editors",
-      "studioRole": "editor"
+      "cmsRole": "editor",
+      "priority": 10
     }
     ```
+
+    Mappings are evaluated by descending `priority`.
   </Step>
   <Step title="Test the integration">
     Use the SAML initiate endpoint to test: `GET /api/v1/pro/sso/saml/initiate`
@@ -85,7 +105,7 @@ Tables created: `pro_sso_configs`, `pro_sso_role_mappings`, `pro_sso_certificate
 
 ### Certificate Lifecycle & Metadata Import
 
-Instead of pasting entity ID, SSO URL, and certificate by hand, import everything from your IdP's metadata document (the fetch is SSRF-guarded — https only, no private targets, no redirects):
+Instead of pasting entity ID, SSO URL, and certificate by hand, import everything from your IdP's metadata document — on the SSO page with **Import** next to the metadata URL field, or via the API. The fetch is SSRF-guarded (https only, no private targets, no redirects):
 
 ```bash
 # One-URL setup / refresh: updates entity id, SSO URL, and the certificate set
@@ -96,14 +116,9 @@ GET /api/v1/pro/sso/config/certificates
 ```
 
 - **Rotation windows** — the active set holds *multiple* certificates, so an IdP rollover with old + new certs in metadata causes **zero failed logins**; certificates absent from the metadata are retired, expired ones are never consulted.
-- **Expiry warnings** — a daily sweep refreshes metadata-configured IdPs and emits a `sso.certificate.expiring` event up to 30 days before a certificate expires (recorded by the Audit plugin with warning severity). The frontend shows per-certificate expiry badges next to the metadata URL field.
+- **Expiry warnings** — a daily sweep refreshes metadata-configured IdPs and emits a `sso.certificate.expiring` event up to 30 days before a certificate expires (recorded by the Audit plugin with warning severity). The SSO page lists every stored certificate with a badge — green while valid, amber within 30 days of expiry, grey once retired.
 
-<Callout kind="info">
-  **Secrets are encrypted at rest.** OAuth/OIDC `clientSecret` values are stored
-  encrypted (AES-256-GCM) rather than in plaintext. Set the encryption key via the
-  `PRO_SSO_SECRET_KEY` environment variable (a 64-hex-character key); existing
-  plaintext values keep working and are upgraded on next write.
-</Callout>
+The certificate list carries id, status, expiry date, and days left — never the PEM itself.
 
 ### Setting Up OAuth 2.0 / OIDC
 
@@ -111,13 +126,22 @@ GET /api/v1/pro/sso/config/certificates
 POST /api/v1/pro/sso/config
 {
   "provider": "oidc",
+  "enabled": true,
   "clientId": "your-client-id",
   "clientSecret": "your-client-secret",
-  "issuerUrl": "https://accounts.google.com",
-  "scopes": ["openid", "profile", "email"],
-  "enforced": false
+  "authorizationUrl": "https://idp.example.com/oauth2/authorize",
+  "tokenUrl": "https://idp.example.com/oauth2/token",
+  "userinfoUrl": "https://idp.example.com/oauth2/userinfo",
+  "scopes": "openid email profile",
+  "enforceSso": false
 }
 ```
+
+`provider` is one of `saml`, `oidc`, `google`, `microsoft`, or `github`. `scopes` is a space-separated string (default `openid email profile`).
+
+<Callout kind="info">
+  **The client secret is write-only.** `GET`, `POST`, and `PUT /api/v1/pro/sso/config` all return the stored row with `client_secret` replaced by a fixed mask, so an admin UI or a log can never capture it. `GET` additionally shortens the certificate to its first 50 characters; `POST` and `PUT` return it intact, because the admin form sends the certificate back on save and a shortened value would overwrite the stored PEM. Responses use the snake_case column names (`client_secret`, `enforce_sso`, `verified_domains`, …).
+</Callout>
 
 Callback URL for your OAuth provider:
 ```
@@ -140,25 +164,51 @@ https://your-studio.com/api/v1/pro/sso/scim/v2/
 Generate a SCIM bearer token:
 ```bash
 POST /api/v1/pro/sso/config/regenerate-scim-token
+# → { "data": { "scimToken": "<plaintext, shown once>" } }
 ```
 
 <Callout kind="info">
   **SCIM tokens are hashed at rest and shown once.** Copy the token from the
-  response of the regenerate call — it cannot be retrieved later. The SCIM
-  surface implements the interop details large IdPs expect: `userName`/`externalId`
-  filtering, PATCH operations (including Microsoft Entra's path-less value-object
-  form), SCIM-standard error bodies, and the discovery endpoints.
+  response of the regenerate call (or from the create response when you enable
+  SCIM while creating the configuration) — it cannot be retrieved later; other
+  responses only show its first characters followed by a mask. Regenerating
+  invalidates the previous token immediately. Enabling SCIM through
+  `PUT /api/v1/pro/sso/config` stores a hash only, so call the regenerate
+  endpoint to obtain a usable token.
 </Callout>
+
+**Standards-conformant responses.** All nine `scim/v2/*` routes return the bare RFC 7644 documents your IdP expects — no Studio `{ "data": … }` wrapper — and `meta.created` / `meta.lastModified` carry real ISO 8601 timestamps. The surface implements the interop details large IdPs check during setup: `userName eq "…"` / `externalId eq "…"` filtering for the duplicate check, PATCH operations (including Microsoft Entra's path-less value-object form), the error statuses RFC 7644 prescribes, and the discovery endpoints (`ServiceProviderConfig`, `ResourceTypes`, `Schemas`).
+
+<Callout kind="alert">
+  **SCIM error bodies are not RFC 7644 documents yet.** The status codes are correct (`409` for an existing `userName`, `400` for an unsupported filter), but Studio's global error handler replaces the SCIM error body with its standard JSON error. The `schemas` and `detail` fields are lost, and `message` reads `Http Exception`. IdPs that decide on the status code work; an IdP that shows the SCIM `detail` to the admin shows nothing useful.
+</Callout>
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /scim/v2/Users` | List users, with `userName` / `externalId` filters |
+| `POST /scim/v2/Users` | Provision a user |
+| `GET /scim/v2/Users/:id` | Get one user |
+| `PUT` / `PATCH /scim/v2/Users/:id` | Replace or patch a user (activate/deactivate, name, email) |
+| `DELETE /scim/v2/Users/:id` | Deactivate the user (`204`) |
+
+Paths are relative to the SCIM base URL above; every call needs `Authorization: Bearer <SCIM token>`.
 
 ### Domain Enforcement
 
-When SSO is enforced for specific domains, users with matching email addresses are redirected to SSO login instead of the password form:
+When SSO is enforced (`enforceSso`) for the organization's `verifiedDomains`, users with a matching email address are sent to SSO login instead of the password form. Addresses on `bypassEmails` keep password login — use this for a break-glass admin account.
 
 ```bash
+# Login screen, before authentication (throttled to 30 requests/minute per IP)
+POST /api/v1/pro/sso/login-method
+{ "organizationSlug": "acme", "email": "user@example.com" }
+# → { "data": { "method": "sso" } }   or   { "data": { "method": "password" } }
+
+# Same check for the caller's own organization (authenticated)
 POST /api/v1/pro/sso/check-login-method
 { "email": "user@example.com" }
-# Returns: { "method": "saml", "ssoUrl": "..." }
 ```
+
+The public probe answers `password` for unknown organization slugs, so it reveals nothing about which organizations or accounts exist.
 
 ## For Editors: Logging In
 
@@ -170,4 +220,4 @@ When SSO is configured, the login page shows a **Sign in with SSO** button (or r
 
 ## API Reference
 
-All SSO endpoints are in the [Studio API Reference](https://docs.studio.roadbeat.dev/api-reference/overview) under the SSO-related tags.
+All SSO endpoints are in the [Studio API Reference](https://docs.studio.roadbeat.dev/api-reference/overview) under the `pro-sso` tag. Configuration and role-mapping responses use the `{ "data": … }` envelope with snake_case fields; the `scim/v2/*` routes return bare SCIM documents.

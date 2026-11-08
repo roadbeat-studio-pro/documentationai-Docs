@@ -21,12 +21,17 @@ The **Custom Layouts** plugin extends CE's built-in layout system with a full la
 
 ### Migration
 
+The Studio API applies and tracks plugin migrations itself at startup, so these run automatically — a new one takes effect on the next API start. Run them by hand only if you set `PLUGIN_MIGRATIONS=off` because a deploy step applies them; see [Installation](/installation) for details.
+
 ```bash
 psql -U postgres -d roadbeat_studio -f plugins/pro-layouts/migrations/001_create_custom_layouts.sql
 psql -U postgres -d roadbeat_studio -f plugins/pro-layouts/migrations/002_org_cascade_and_default_index.sql
 psql -U postgres -d roadbeat_studio -f plugins/pro-layouts/migrations/003_git_config_and_vault.sql
 psql -U postgres -d roadbeat_studio -f plugins/pro-layouts/migrations/004_layout_gallery.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-layouts/migrations/005_git_sync_claim.sql
 ```
+
+Migration 005 adds the claim column that keeps two Git syncs (from two operators or two nodes) from running at the same time.
 
 Tables created: `pro_custom_layouts`, `pro_layout_git_config`, `pro_layout_vault` (+`_dek`), `pro_layout_gallery` (+installs/ratings)
 
@@ -37,7 +42,9 @@ Tables created: `pro_custom_layouts`, `pro_layout_git_config`, `pro_layout_vault
     Go to the **Custom Layouts** section in the Pro sidebar.
   </Step>
   <Step title="Create a new layout">
-    Click **Create Layout**. Select the target content type, give it a name, and start building the layout definition.
+    Click **Create Layout**. Choose the target content type from the list of your organization's content types, give the layout an id and a name, and start building the layout definition.
+
+    A layout id is unique per content type: creating a second layout with the same id for the same type returns `409 Conflict` (error code `LAYOUT_EXISTS`) — also when two people create it at the same moment.
   </Step>
   <Step title="Define regions">
     Add regions (hero-image, title, body-text, metadata-strip, etc.) and configure their source paths, styles, and conditions.

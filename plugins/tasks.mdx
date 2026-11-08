@@ -1,0 +1,210 @@
+---
+title: Tasks & Task Board
+description: Plan and track editorial work on a board — manual tasks with priority, due date, tags and linked content, next to the review tasks your workflows create.
+---
+
+## Overview
+
+**Tasks** are the to-dos of an editorial team. They come from two sources and live on one board:
+
+- **Workflow tasks** — created automatically by a state's task rule when content enters that state (e.g. "Review this article"), and cancelled when it leaves. See [Editorial Workflows](/plugins/workflows).
+- **Manual tasks** — created by hand for anything else: "Update the event photos", "Check the legal notice", with or without a content item attached.
+
+Tasks are part of the **Editorial Workflows** plugin (`pro-workflows`) and open from **Tasks** in the **Workflows & Publishing** sidebar group. The menu item shows a badge with your open tasks.
+
+## Key Features
+
+- **Board and list** — drag cards between **To do**, **In progress** and **Done**, or work through a filterable list
+- **Assigned to me** — one switch narrows the view to your open tasks
+- **Manual tasks** — title, description, assignee, priority, due date, tags and an optional linked content item
+- **Readable cards** — assignee name, linked content title (click to open it in the editor), priority, tags, due date and an overdue marker
+- **SLA reminders and escalation** — for workflow and manual tasks alike
+- **Organization-scoped** — assignees and linked content must belong to your organization
+
+## Working with the Board
+
+<Steps>
+  <Step title="Open Tasks" icon="check-square">
+    Go to **Tasks** in the sidebar. The board shows three columns — **To do**, **In progress**, **Done** — each with its task count. Your choice of board or list view is remembered in the browser.
+  </Step>
+  <Step title="Create a task" icon="plus">
+    Click **New task** and fill in the form:
+
+    | Field | Notes |
+    |-------|-------|
+    | **Title** | Required, up to 200 characters |
+    | **Description** | Optional, up to 5,000 characters |
+    | **Assignee** | Any active member of your organization, or unassigned |
+    | **Priority** | Low, Medium (default), High, Urgent |
+    | **Due date** | Optional; the task is due at 17:00 local time on that day |
+    | **Tags** | Comma-separated, up to 20 tags of 40 characters |
+    | **Linked content** | Search by title or slug; the result list shows *title — content type* |
+  </Step>
+  <Step title="Move it along" icon="move-right">
+    Drag a card to another column, or use the buttons on the card: **Start** (To do → In progress), **Complete**, and **Reopen** (back to To do). Completing records who completed the task and when; reopening clears that again.
+  </Step>
+  <Step title="Edit or remove it" icon="pencil">
+    Manual tasks have **Edit** and **Delete**. Workflow tasks are never deleted — their **Cancel** button takes them off the board while the workflow history keeps them.
+  </Step>
+</Steps>
+
+### List View and Filters
+
+The **List** view adds status filters: **All**, **Pending**, **In progress**, **Overdue** (open and past the due date), **Completed** and **Cancelled**. Cancelled tasks appear only here, not on the board.
+
+### Assigned to Me
+
+Tick **Assigned to me** to see only the open tasks (To do and In progress) assigned to you. The pending counter in the header and the menu badge count the same open tasks.
+
+## Rules
+
+| Situation | Result |
+|-----------|--------|
+| A **viewer** creates, edits, moves or deletes a task | `403` (`TASK_VIEWER_READONLY`) — viewers can read tasks |
+| Assignee or linked content belongs to another organization (or does not exist) | `404` (`USER_NOT_FOUND` / `CONTENT_NOT_FOUND`) |
+| Deleting a **workflow** task | `409` (`TASK_DELETE_WORKFLOW`) — cancel it instead |
+| Changing the linked content of a **workflow** task | `409` (`TASK_CONTENT_FIXED`) — its content comes from the workflow |
+| Assigning a task to **yourself** | No notification is sent |
+| Assigning a task to someone else | The assignee gets an in-app notification (`workflow.task.assigned`, via the Notifications plugin) |
+
+<Callout kind="info">
+  When content moves to another workflow state, its workflow tasks still in **To do** are cancelled and the new state's task rules create fresh ones. A workflow task already moved to **In progress** stays open until someone completes or cancels it.
+</Callout>
+
+## Due Dates and Escalation
+
+Every 5 minutes the plugin checks open tasks (To do and In progress) with a due date — manual tasks included:
+
+- When a task passes its due date, the assignee is reminded **once** (`workflow.task.overdue`).
+- When it is still open `WORKFLOW_ESCALATION_HOURS` (default: 24) after the due date, it escalates to the organization's admins (`workflow.task.escalated`).
+
+Notifications need the [Notifications](/plugins/notifications) plugin.
+
+## API Reference
+
+Task endpoints are documented in the [Studio API Reference](https://docs.studio.roadbeat.dev/api-reference/overview) under the `pro-workflows` tag.
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/v1/pro/tasks` | List the organization's tasks, newest first (`?assigneeId=`, `?status=`) |
+| `GET /api/v1/pro/tasks/my` | Open tasks (pending + in progress) assigned to the caller |
+| `GET /api/v1/pro/tasks/pending-count` | Number of open tasks (`?assigneeId=`, defaults to the caller) |
+| `GET /api/v1/pro/tasks/:id` | Get one task |
+| `POST /api/v1/pro/tasks` | Create a manual task |
+| `PUT /api/v1/pro/tasks/:id` | Edit a task (title, description, due date, priority, tags, linked content) |
+| `PATCH /api/v1/pro/tasks/:id/status` | Move a task: `pending`, `in_progress`, `completed`, `cancelled` |
+| `DELETE /api/v1/pro/tasks/:id` | Delete a manual task (`409` for workflow tasks) |
+| `POST /api/v1/pro/tasks/:id/complete` | Mark a task as completed |
+| `POST /api/v1/pro/tasks/:id/cancel` | Cancel a task |
+| `POST /api/v1/pro/tasks/:id/assign` | Assign a task (`{ "assigneeId": "…" }`) |
+
+### Create a Manual Task
+
+```bash
+POST /api/v1/pro/tasks
+Authorization: Bearer YOUR_TOKEN
+Content-Type: application/json
+
+{
+  "title": "Update the event photos",
+  "description": "The venue sent new pictures.",
+  "assigneeId": "6f1c2a9e-1b7d-4c3e-9a51-2d8e4f0b7c11",
+  "dueDate": "2026-11-20T17:00:00Z",
+  "priority": "high",
+  "contentId": "b86d3135-b37e-4a2f-8c55-0e1d9f6a2b44",
+  "tags": ["photos", "events"]
+}
+```
+
+<ParamField body="title" param-type="string" required="true">
+  Task title, 1–200 characters.
+</ParamField>
+
+<ParamField body="description" param-type="string" required="false">
+  Up to 5,000 characters.
+</ParamField>
+
+<ParamField body="assigneeId" param-type="string" required="false">
+  User id of a member of your organization.
+</ParamField>
+
+<ParamField body="dueDate" param-type="string" required="false">
+  ISO 8601 date-time.
+</ParamField>
+
+<ParamField body="priority" param-type="string" required="false">
+  `low`, `medium` (default), `high` or `urgent`.
+</ParamField>
+
+<ParamField body="contentId" param-type="string" required="false">
+  Content item of your organization to link.
+</ParamField>
+
+<ParamField body="tags" param-type="array" required="false">
+  Up to 20 strings of at most 40 characters.
+</ParamField>
+
+`PUT /api/v1/pro/tasks/:id` accepts the same fields except `assigneeId` (use `/assign`), all optional; `null` clears `description`, `dueDate` and `contentId`.
+
+### Task Object
+
+Responses use the Studio `{ "data": … }` envelope and snake_case fields:
+
+<ResponseField name="id" field-type="string" required="true">
+  Task id.
+</ResponseField>
+
+<ResponseField name="manual" field-type="boolean" required="true">
+  `true` for a task created by hand (no workflow instance).
+</ResponseField>
+
+<ResponseField name="type" field-type="string" required="true">
+  `custom` for manual tasks; the task rule's type (e.g. `review`) for workflow tasks.
+</ResponseField>
+
+<ResponseField name="status" field-type="string" required="true">
+  `pending`, `in_progress`, `completed` or `cancelled`.
+</ResponseField>
+
+<ResponseField name="priority" field-type="string" required="true">
+  `low`, `medium`, `high` or `urgent`.
+</ResponseField>
+
+<ResponseField name="tags" field-type="array" required="true">
+  Tag strings.
+</ResponseField>
+
+<ResponseField name="assignee_id" field-type="string">
+  Assigned user; `assignee_name` carries the display name.
+</ResponseField>
+
+<ResponseField name="content_id" field-type="string">
+  Linked content — a manual task's own link, else the workflow instance's content. `content_title` and `content_slug` describe it.
+</ResponseField>
+
+<ResponseField name="workflow_instance_id" field-type="string">
+  `null` for manual tasks. Workflow tasks also carry `current_state` and, in lists, `workflow_name`.
+</ResponseField>
+
+<ResponseField name="due_date" field-type="string">
+  SLA due date. `reminded_at` and `escalated_at` record the reminder and the escalation.
+</ResponseField>
+
+<ResponseField name="created_by" field-type="string">
+  Creator of a manual task; `created_by_name` carries the display name.
+</ResponseField>
+
+<ResponseField name="completed_by" field-type="string">
+  Completing user and `completed_at` timestamp.
+</ResponseField>
+
+## Related
+
+<Columns cols={2}>
+  <Card title="Editorial Workflows" icon="git-branch" href="/plugins/workflows">
+    Task rules, states and transitions that create workflow tasks.
+  </Card>
+  <Card title="Team Activity Feed" icon="activity" href="/plugins/activity-feed">
+    What the team did recently — edits, comments, workflow moves, scheduling.
+  </Card>
+</Columns>

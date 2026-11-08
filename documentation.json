@@ -39,6 +39,12 @@
                 "path": "languages",
                 "icon": "languages",
                 "badge": "New"
+              },
+              {
+                "title": "Accessibility",
+                "path": "accessibility",
+                "icon": "accessibility",
+                "badge": "New"
               }
             ]
           },
@@ -102,6 +108,18 @@
                 "title": "Editorial Workflows",
                 "path": "plugins/workflows",
                 "icon": "git-branch"
+              },
+              {
+                "title": "Tasks & Task Board",
+                "path": "plugins/tasks",
+                "icon": "check-square",
+                "badge": "New"
+              },
+              {
+                "title": "Team Activity Feed",
+                "path": "plugins/activity-feed",
+                "icon": "activity",
+                "badge": "New"
               },
               {
                 "title": "Content Scheduling",
@@ -269,6 +287,10 @@
               {
                 "title": "Common Issues",
                 "path": "help-center/troubleshooting/common-issues"
+              },
+              {
+                "title": "API Error Codes",
+                "path": "help-center/troubleshooting/error-codes"
               }
             ]
           }

@@ -1,28 +1,32 @@
 ---
 title: Editorial Workflows
-description: Configurable content approval workflows with states, transitions, task assignment, and publish guards.
+description: Configurable approval workflows with states, transitions, four-eyes approval, multilingual labels, task rules, and publish guards for content types.
 ---
 
 ## Overview
 
-The **Editorial Workflows** plugin replaces CE's simple draft/published lifecycle with a fully configurable state machine. Define custom workflow stages (e.g., Draft → In Review → Approved → Published), assign review tasks to team members, and automatically prevent publishing without approval.
+The **Editorial Workflows** plugin replaces CE's simple draft/published lifecycle with a fully configurable state machine. Define custom workflow stages (e.g., Draft → In Review → Approved), bind them to content types, have tasks created for reviewers automatically, and prevent publishing without approval.
 
 <Callout kind="info">
-  When this plugin is active, content cannot be published without completing the configured workflow. The plugin registers a `content.beforePublish` event handler that blocks unauthorized publishing.
+  The publish guard applies to every content item that is **in a workflow**: it blocks `content.beforePublish` until the item reaches a final or publishable state. Content without a workflow instance publishes as in CE — bind the workflow to the content type (or start it by hand) to put an item under approval.
 </Callout>
+
+The plugin also provides the organization's [Tasks & Task Board](/plugins/tasks) and the [Team Activity Feed](/plugins/activity-feed).
 
 ## Key Features
 
-- **Custom workflow definitions** — design workflows with any number of states and transitions
+- **Custom workflow definitions** — any number of states and transitions, bound to one or more content types
+- **Multilingual texts** — name, description, state names and transition labels in every enabled organization language
 - **Definition versioning** — structural edits create a new version; in-flight content keeps transitioning on the version it started with
 - **Role-based transitions** — `requiredRoles` and `requiresComment` are enforced server-side (403 / 400)
+- **Four-eyes rule** — `noSelfApproval` stops the content's author from approving their own work
 - **Automatic tasks** — per-state task rules create review tasks on entry (role-based assignment) and cancel them on exit
 - **Due-date SLAs** — overdue tasks trigger reminders to the assignee and escalate to admins
 - **Publish guard** — blocks publishing until content reaches a *final* or explicitly publishable state (works with custom state names)
 - **Concurrency-safe** — two simultaneous transitions can never both win; the loser receives `409 Conflict`
-- **Auto-initialization** — new content automatically enters the workflow's initial state
+- **Auto-initialization** — new content of a bound type starts in the workflow's initial state; existing content can be started from the editor sidebar
 - **Workflow builder** — templates, simulation, analysis, import/export
-- **Editor sidebar panel** — shows current workflow state and available actions
+- **Content templates** — reusable pre-filled drafts per content type
 
 ## For Admins: Setting Up Workflows
 
@@ -30,13 +34,23 @@ The **Editorial Workflows** plugin replaces CE's simple draft/published lifecycl
 
 <Steps>
   <Step title="Navigate to Workflows">
-    Go to **Workflows** in the Pro section of the sidebar.
+    Go to **Workflows** in the **Workflows & Publishing** group of the sidebar.
   </Step>
-  <Step title="Create or use a template">
-    Click **Create Workflow** to start from scratch, or use the Workflow Builder's template library. The default "Editorial Review" template provides a common setup: Draft → In Review → Approved → Published.
+  <Step title="Create, seed, or use a template">
+    Click **Create Workflow** to start from scratch, or apply one of the Workflow Builder's templates. While the organization has no workflows yet, **Seed Default** creates the "Editorial Review" workflow (Draft → In Review → Changes Requested / Approved).
+
+    <Callout kind="alert">
+      A seeded or template-created workflow is **not bound to any content type** until you select types for it — it applies to nothing until then. There is no "default workflow" that catches unbound types.
+    </Callout>
+  </Step>
+  <Step title="Name it in your organization's languages">
+    The form shows one input per **enabled organization language** for the workflow name and description (and, below, for every state name and transition label). The organization's default language comes first, then your interface language; with more than four languages the rest fold away behind **Other languages**. The name in the **default language is required**. Texts in a language that has since been disabled stay visible, so nothing is lost on save.
+  </Step>
+  <Step title="Select the content types">
+    Tick the content types this workflow applies to — new content of these types starts in the workflow automatically. A type that another active workflow already uses is marked **already used by "…"**; when several active workflows share a type, the newest one starts on new content. Each workflow card in the list shows **Applies to: …** (or that it applies to no type yet).
   </Step>
   <Step title="Define states">
-    Add states with names, colors, and role requirements. Mark one state as **initial** (where new content starts) and one or more as **final** (e.g., Published, Archived).
+    Add states with an id, names, a color, and flags. Mark exactly one state as **initial** (where new content starts) and one or more as **final** (e.g., Approved, Archived).
 
     ```json
     {
@@ -54,40 +68,46 @@ The **Editorial Workflows** plugin replaces CE's simple draft/published lifecycl
     ```
 
     - **`isFinal` / `allowsPublish`** — the publish guard allows publishing from any final state or any state flagged `allowsPublish`, regardless of the state's name (`freigegeben` works just as well as `approved`).
-    - **`taskRules`** — tasks created automatically when an instance *enters* this state. `assigneeRole` assigns to the org member with that role who carries the fewest pending tasks; without it, the instance assignee is used. Pending tasks of the exited state are cancelled on transition.
+    - **`taskRules`** — tasks created automatically when an instance *enters* this state. `assigneeRole` (`admin`, `editor` or `viewer`) assigns to the active org member with that role who carries the fewest pending tasks; without it, the instance assignee is used. `dueInHours` sets the SLA. Pending tasks of the exited state are cancelled on transition. The form edits one task rule per state; use the API for several.
   </Step>
   <Step title="Define transitions">
     Configure which state changes are allowed and who can perform them:
 
     ```json
     {
-      "from": "draft",
-      "to": "in_review",
-      "action": "submit_for_review",
-      "label": { "en": "Submit for Review" },
+      "from": "in_review",
+      "to": "approved",
+      "action": "approve",
+      "label": { "en": "Approve", "de": "Genehmigen" },
       "requiredRoles": ["editor", "admin"],
-      "requiresComment": false
+      "requiresComment": false,
+      "noSelfApproval": true
     }
     ```
 
     <Callout kind="info">
-      Both gates are enforced by the API: a caller whose role is not in `requiredRoles` receives `403 Forbidden`, and a `requiresComment` transition without a comment receives `400 Bad Request`. Self-approval by unauthorized roles is not possible.
+      All gates are enforced by the API: a caller whose role is not in `requiredRoles` receives `403 Forbidden`, and a `requiresComment` transition without a comment receives `400 Bad Request`.
     </Callout>
   </Step>
-  <Step title="Assign to content types">
-    Select which content types use this workflow. Multiple content types can share the same workflow definition.
-  </Step>
 </Steps>
+
+### Four-Eyes Rule (`noSelfApproval`)
+
+Set `noSelfApproval: true` on a transition to require a second person: the user who **created the content item** cannot perform that transition, even if their role is allowed. The attempt is rejected with `403` and the error code `WORKFLOW_SELF_APPROVAL`; every other user with a permitted role can approve as usual. The rule is opt-in per transition, so you can apply it to *Approve* without blocking *Submit for Review*.
+
+<Callout kind="alert">
+  `noSelfApproval` is set through the API (`POST`/`PUT /api/v1/pro/workflows/definitions`) or a JSON import — the workflow form does not show it yet. Saving the workflow in the form afterwards sends the transitions without it, which **removes the rule**. Re-apply it via the API after editing the workflow in the form.
+</Callout>
 
 ### Workflow Builder
 
 The Workflow Builder provides advanced tools for creating and managing workflows:
 
-- **Templates** — pre-built workflows (Editorial Review, Legal Approval, Translation Review)
+- **Templates** — Simple Approval, Editorial Review, Multi-Stage Approval, Legal Compliance, Translation Workflow; applying a template accepts the content types to bind
 - **Simulation** — test transitions from any state, find paths between states
 - **Analysis** — detect dead-ends, orphaned states, unreachable final states
-- **Import/Export** — share workflow definitions as JSON files
-- **Duplication** — clone an existing workflow to create variations
+- **Import/Export** — share workflow definitions as JSON files (content-type bindings included)
+- **Duplication** — clone an existing workflow to create variations; the copy keeps the original's content-type bindings and is active, so it becomes the workflow new content of those types starts in
 
 ### Editing Workflows Safely (Versioning)
 
@@ -105,21 +125,44 @@ Editing a workflow's **states or transitions** creates a new *version* of the de
 
 ### Task SLAs
 
-Tasks with a due date are swept every 5 minutes:
+Tasks with a due date are swept every 5 minutes — workflow tasks and [manual tasks](/plugins/tasks) alike, in **To do** or **In progress**:
 
 - A task passing its due date triggers **one** `workflow.task.overdue` event — the assignee receives a localized in-app notification (via the Notifications plugin).
-- A task still pending after `WORKFLOW_ESCALATION_HOURS` (default: 24) past its due date **escalates** to the organization's admins.
+- A task still open after `WORKFLOW_ESCALATION_HOURS` (default: 24) past its due date **escalates** to the organization's admins (`workflow.task.escalated`).
+
+### Content Templates
+
+Content templates are reusable, pre-filled drafts per content type (`/api/v1/pro/templates`). Save an existing item as a template, mark one template per type as the default, and instantiate it to seed a new draft.
+
+Template data follows the same storage shape as content: data posted with the Schema Registry's form field ids (e.g. `quote_text`) is stored under the content's storage paths (e.g. `content.text`), and templates saved before that storage switch are moved once at the next API start, so they no longer open with empty fields.
 
 ### Migrations
 
+The Studio API applies plugin migrations **automatically on its next start** and records which ones ran — no manual step is needed after installing or updating the plugin. See [Installation](/installation) for details.
+
+| File | Purpose |
+|------|---------|
+| `001_create_workflow_tables.sql` | Workflows, instances, tasks |
+| `002_add_organization_id_to_instances_and_tasks.sql` | Tenant isolation |
+| `003_create_content_templates.sql` | Content templates |
+| `004_versioning_and_sla.sql` | Definition versions, SLA columns |
+| `005_create_activities.sql` | [Team activity feed](/plugins/activity-feed) |
+| `006_drop_workflow_is_default.sql` | Removes the unused "Default workflow" flag |
+| `007_manual_tasks.sql` | [Manual tasks](/plugins/tasks): optional workflow instance, linked content, priority, tags, creator |
+
+If your deployment applies migrations in a separate step (`PLUGIN_MIGRATIONS=off`), run the files in order:
+
 ```bash
-psql -U postgres -d roadbeat_studio -f plugins/pro-workflows/migrations/001_create_workflow_tables.sql
-psql -U postgres -d roadbeat_studio -f plugins/pro-workflows/migrations/002_add_organization_id_to_instances_and_tasks.sql
-psql -U postgres -d roadbeat_studio -f plugins/pro-workflows/migrations/003_create_content_templates.sql
-psql -U postgres -d roadbeat_studio -f plugins/pro-workflows/migrations/004_versioning_and_sla.sql
+for f in plugins/pro-workflows/migrations/*.sql; do
+  psql -U postgres -d roadbeat_studio -f "$f"
+done
 ```
 
-Tables created: `pro_workflows`, `pro_workflow_instances`, `pro_workflow_tasks`, `pro_content_templates`, `pro_workflow_versions`
+Tables: `pro_workflows`, `pro_workflow_versions`, `pro_workflow_instances`, `pro_workflow_tasks`, `pro_content_templates`, `pro_activities`
+
+<Callout kind="info">
+  The "Default workflow" flag was removed: it was stored but never read — workflows apply only through their content-type bindings. Requests that still send `isDefault` for a workflow are rejected with `400`. Content templates keep their own, working default flag.
+</Callout>
 
 ## For Editors: Using Workflows
 
@@ -127,9 +170,17 @@ Tables created: `pro_workflows`, `pro_workflow_instances`, `pro_workflow_tasks`,
 
 When editing content, the **Workflow** sidebar panel shows:
 
-- **Current state** — the content's position in the workflow (e.g., "Draft", "In Review")
+- **Current state** — the content's position in the workflow (e.g., "Draft", "In Review"), in your interface language
 - **Available transitions** — buttons for allowed state changes based on your role
 - **Comment requirement** — some transitions require a comment (e.g., "Request Changes")
+- **History** — every transition with its comment
+
+### Starting a Workflow for Existing Content
+
+Content created **before** its type was bound to a workflow has no workflow instance. For such items the sidebar offers **Start workflow** — with a selector when several active workflows apply to the item's type. The item enters the workflow's initial state, exactly as if it had been created after the binding.
+
+- Only **active** workflows bound to the item's content type can be started; others are rejected with `400` (`WORKFLOW_NOT_FOR_TYPE`).
+- Viewers cannot start workflows (`403`), and an item that already has a workflow instance cannot get a second one.
 
 ### Submitting Content for Review
 
@@ -144,25 +195,13 @@ When editing content, the **Workflow** sidebar panel shows:
     Some transitions require a comment explaining the submission.
   </Step>
   <Step title="Content moves to the next state">
-    The content is now in the review queue. The assigned reviewer is notified.
+    The content is now in the review queue. Task rules of the new state create review tasks, and the responsible assignee is notified.
   </Step>
 </Steps>
 
 ### Tasks
 
-When content is assigned for review, a **task** is created. View your pending tasks at **Tasks** in the sidebar.
-
-Each task shows:
-- Content item title and type
-- Workflow state requiring action
-- Due date and priority
-- Assignee
-
-Actions: **Complete** (mark as done), **Reassign** (to another user), **Cancel**.
-
-<Callout kind="tip">
-  The Tasks menu item shows a **badge count** of your pending tasks, so you always know how many items need your attention.
-</Callout>
+Entering a state with a task rule creates a **task** for the reviewer. Tasks — from workflows and created by hand — live on the **Tasks** board, and the **Tasks** menu item shows a badge with your open tasks. See [Tasks & Task Board](/plugins/tasks).
 
 ## API Reference
 
@@ -171,12 +210,15 @@ All workflow endpoints are documented in the [Studio API Reference](https://docs
 | Endpoint | Description |
 |----------|-------------|
 | `GET /api/v1/pro/workflows/definitions` | List workflow definitions |
-| `POST /api/v1/pro/workflows/definitions` | Create a workflow |
-| `POST /api/v1/pro/workflows/definitions/seed` | Seed default workflow |
+| `POST /api/v1/pro/workflows/definitions` | Create a workflow (`contentTypeIds`, `states`, `transitions`) |
+| `PUT /api/v1/pro/workflows/definitions/:id` | Update a workflow (structural edits create a new version) |
+| `POST /api/v1/pro/workflows/definitions/seed` | Seed the "Editorial Review" workflow if the organization has none |
 | `POST /api/v1/pro/workflows/definitions/:id/migrate-instances` | Migrate in-flight instances to the current version |
 | `GET /api/v1/pro/workflows/instances/:contentId` | Get workflow state for content |
-| `POST /api/v1/pro/workflows/instances/:contentId/transition` | Transition to new state (enforces roles/comments; `409` on concurrent transitions) |
+| `GET /api/v1/pro/workflows/instances/:contentId/startable` | Workflows that can be started by hand for an item (`canStart`, `workflows`) |
+| `POST /api/v1/pro/workflows/instances/:contentId/initialize` | Start a workflow for an item (`{ "workflowId": "…" }`) |
+| `POST /api/v1/pro/workflows/instances/:contentId/transition` | Transition to a new state (enforces roles, comments and the four-eyes rule; `409` on concurrent transitions) |
 | `POST /api/v1/pro/workflows/instances/:contentId/assign` | Set the responsible assignee for an instance |
-| `GET /api/v1/pro/tasks` | List tasks |
-| `POST /api/v1/pro/tasks/:id/complete` | Complete a task |
-| `POST /api/v1/pro/tasks/:id/assign` | Assign a task |
+| `GET /api/v1/pro/templates` | List content templates |
+
+Task endpoints are listed on [Tasks & Task Board](/plugins/tasks); the activity feed endpoint on [Team Activity Feed](/plugins/activity-feed).

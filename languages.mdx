@@ -27,6 +27,16 @@ Bulgarian (`bg`), Croatian (`hr`), Czech (`cs`), Danish (`da`), Dutch (`nl`), En
   Catalogs are versioned with each plugin and served by the Studio host, so a plugin's translations always match the installed plugin version.
 </Callout>
 
+## What is translated
+
+Beyond labels and buttons, the plugin UIs follow the grammar and conventions of each language:
+
+- **Plural forms** — counted texts ("3 items", "1 release failed") use the plural rules of the UI language, so Polish, Czech, Slovenian, Irish or Maltese get their own `few` / `many` / `two` forms instead of a bolted-on "item(s)". The number itself is formatted for the locale (`1.234` in German, `1 234` in French). Portuguese follows European Portuguese rules.
+- **Formal address** — plugins address users the way Studio core does: formally where software conventionally does (German *Sie*, French *vous*, Hungarian *Ön*, Romanian *dumneavoastră*, Estonian *teie*, Dutch *u*), buttons included.
+- **Local terminology** — established local terms instead of English loanwords, for example the local abbreviation for "AI" (*KI*, *IA*, *MI*, *ИИ*, *ΤΝ*) and *inhoud* / *inhoudstype* for "content" / "content type" in Dutch.
+- **Error messages** — when an API call fails, the plugin shows the error in the UI language. Every Pro API error carries a stable `code`; the plugin looks that code up in its own catalog and fills in the error's parameters (provider name, limit, file size …). See [API Error Codes](/help-center/troubleshooting/error-codes).
+- **Workflow texts** — workflow names, descriptions, state names and transition labels are entered per *organization* language and shown in the UI language, falling back to English and then to any available text. See [Editorial Workflows](/plugins/workflows).
+
 ## How it works
 
 Each plugin frontend uses [`@ngx-translate/core`](https://github.com/ngx-translate/core) wired through a shared bootstrap helper:
@@ -59,6 +69,45 @@ For plugin authors and self-hosters, adding a locale is a small, self-contained 
 <Callout kind="tip">
   Keep every catalog's key structure identical to `en.json`. Missing keys fall back to English. Leave brand names (roadbeat, Studio, Pro, plugin names) and code/format placeholders untranslated.
 </Callout>
+
+### Counted strings
+
+A counted key is an object with one entry per [CLDR plural category](https://cldr.unicode.org/index/cldr-spec/plural-rules) of the language, not a single string. English needs `one` and `other`; Polish needs `one`, `few`, `many` and `other`:
+
+<CodeGroup tabs="en.json,pl.json">
+  ```json
+  {
+    "releases": {
+      "card": {
+        "items": {
+          "one": "{{count}} item",
+          "other": "{{count}} items"
+        }
+      }
+    }
+  }
+  ```
+  ```json
+  {
+    "releases": {
+      "card": {
+        "items": {
+          "one": "{{count}} element",
+          "few": "{{count}} elementy",
+          "many": "{{count}} elementów",
+          "other": "{{count}} elementu"
+        }
+      }
+    }
+  }
+  ```
+</CodeGroup>
+
+Templates render counted keys with the `plural` pipe from the shared bootstrap helper — `{{ 'releases.card.items' | plural: release.item_count }}` — and code calls `translatePlural()`. The lookup is `key.<category>` → `key.other` in the UI language, then the same in English. `{{count}}` is inserted already formatted for the locale.
+
+### Error texts
+
+Messages for API errors live under `errors.codes.<CODE>` in each catalog, with the error's `params` as placeholders. A missing entry falls back to the English message the API sent, so a new code never shows a raw key. `errors.unexpected` is the last resort.
 
 ## Related
 

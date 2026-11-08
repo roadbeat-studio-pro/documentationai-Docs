@@ -22,12 +22,9 @@ The **Advanced Roles** plugin replaces CE's three fixed roles (admin/editor/view
 
 ## For Admins: Setting Up Permissions
 
-### Migration
+### Migrations
 
-```bash
-psql -U postgres -d roadbeat_studio -f plugins/pro-advanced-roles/migrations/001_create_content_type_permissions.sql
-psql -U postgres -d roadbeat_studio -f plugins/pro-advanced-roles/migrations/002_create_custom_roles.sql
-```
+The migrations (`001_create_content_type_permissions.sql`, `002_create_custom_roles.sql` in `plugins/pro-advanced-roles/migrations/`) are applied by Studio at startup — see [Installation](/installation#database-migrations).
 
 Tables created: `pro_content_type_permissions`, `pro_custom_roles`, `pro_resource_permissions`
 
@@ -37,7 +34,7 @@ Navigate to **Content Permissions** in the Settings section to configure per-con
 
 <Steps>
   <Step title="Select a content type">
-    Choose the content type you want to configure (e.g., "News", "Press Releases").
+    Pick the content type from the list of your organization's content types (e.g., "News", "Press Releases"). Names appear in your interface language, sorted alphabetically — there is no type ID to look up.
   </Step>
   <Step title="Set permissions per role">
     For each role, toggle which actions are allowed: Create, Read, Update, Delete, Publish, Unpublish.

@@ -21,9 +21,16 @@ The **Preview API** plugin lets you share draft (unpublished) content with exter
 
 ## For Admins: Managing Previews
 
-Navigate to **Preview Links** in the Settings section of the sidebar to manage tokens and shareable links.
+Navigate to **Preview Links** in the Settings section of the sidebar to manage tokens and shareable links. The page lists your organization's tokens and links and shows usage statistics.
+
+When you create a token or a link there, you choose its target instead of typing ids:
+
+- **Content** — a search box over your content: it lists the most recently updated items by default and searches title and slug once you type two characters. Each option reads *title — content type*.
+- **Content type** (for `content_type`-scoped tokens) — a list of your organization's content types, in the interface language.
 
 ### Migrations
+
+The Studio API applies and tracks plugin migrations itself at startup, so these run automatically — a new one takes effect on the next API start. Run them by hand only if you set `PLUGIN_MIGRATIONS=off` because a deploy step applies them; see [Installation](/installation) for details.
 
 ```bash
 psql -U postgres -d roadbeat_studio -f plugins/pro-preview/migrations/001_create_preview_tables.sql

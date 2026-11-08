@@ -17,17 +17,20 @@ The **Content Scheduling** plugin lets you schedule content to be published, unp
 - **Calendar view** — visual overview of all scheduled actions in a date range
 - **Reliable by design** — distributed-safe claiming, bounded retries with backoff, and crash recovery: a deploy at the wrong moment cannot silently drop a publish window
 - **Failure notifications** — terminally failed actions/releases notify their creator (via the Notifications plugin)
+- **Team activity** — scheduled items and release milestones appear in the [Team Activity Feed](/plugins/activity-feed)
 - **Auto-cleanup** — cancels pending actions when content is deleted, and warns when deletion would shrink a draft/scheduled release
 
 ## For Admins: Configuration
 
 ### Migrations
 
+The Studio API applies the plugin's migrations **automatically on its next start** — see [Installation](/installation). If your deployment applies them in a separate step (`PLUGIN_MIGRATIONS=off`), run them in order:
+
 ```bash
 psql -U postgres -d roadbeat_studio -f plugins/pro-scheduling/migrations/001_create_scheduling_tables.sql
-psql -U postgres -d roadbeat_studio -f plugins/pro-scheduling/migrations/002_add_organization_id.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-scheduling/migrations/002_add_organization_id_to_scheduled_actions.sql
 psql -U postgres -d roadbeat_studio -f plugins/pro-scheduling/migrations/003_add_organization_id_to_release_items.sql
-psql -U postgres -d roadbeat_studio -f plugins/pro-scheduling/migrations/004_add_processing_status.sql
+psql -U postgres -d roadbeat_studio -f plugins/pro-scheduling/migrations/004_add_processing_status_to_scheduled_actions.sql
 psql -U postgres -d roadbeat_studio -f plugins/pro-scheduling/migrations/005_add_attempts_for_retry.sql
 psql -U postgres -d roadbeat_studio -f plugins/pro-scheduling/migrations/006_recurring_schedules.sql
 ```
@@ -44,7 +47,25 @@ No additional configuration is needed. The background processor starts automatic
 | `SCHEDULING_MAX_ATTEMPTS` | `3` | Execution attempts before an action/release fails terminally |
 | `SCHEDULING_STALE_MINUTES` | `5` | Minutes after which a claim from a crashed replica is recovered |
 
-Transient failures (a database or network blip) are retried with backoff instead of failing on the first error. Claims left behind by a crashed or redeployed replica are reset for re-execution by a reaper on every poller tick — or failed *visibly* once the attempt cap is reached, at which point the creator is notified.
+Transient failures (a database or network blip) are retried with backoff instead of failing on the first error. Claims left behind by a crashed or redeployed replica — scheduled actions, releases and recurring schedules — are reset for re-execution by a reaper on every poller tick, or failed *visibly* once the attempt cap is reached, at which point the creator is notified.
+
+### Events
+
+The plugin emits these events on the Studio event bus. The [Notifications](/plugins/notifications) plugin and the [Team Activity Feed](/plugins/activity-feed) consume them; your own plugins can subscribe too.
+
+| Event | When |
+|-------|------|
+| `scheduling.action.scheduled` | A publish, unpublish or archive was scheduled for a content item |
+| `scheduling.action.failed` | A scheduled action failed terminally (creator is notified) |
+| `release.created` | A release was created |
+| `release.scheduled` | A release was scheduled |
+| `release.published` | A release was published — `userId` is `null` and `scheduled: true` when the scheduler published it |
+| `release.failed` | Items of a release failed (creator is notified) |
+| `release.items_removed` | Content about to be deleted is part of a draft or scheduled release (lists the affected releases) |
+
+<Callout kind="info">
+  Before the November 2026 update these events never left the plugin, so failure notifications described here were not delivered, and retry backoff and stale-claim recovery failed at the database level. Both work as documented since.
+</Callout>
 
 ## For Editors: Scheduling Content
 
@@ -108,6 +129,10 @@ Releases let you bundle multiple content items for coordinated publishing. Each 
 
 ### Creating a Release
 
+In the admin UI, go to **Releases** and add items row by row. Each item row is a **search-as-you-type content picker**: type part of a title or slug and choose the item from the results (shown with title, content type and status). Pasting a content ID and pressing **Enter** still works. A row left empty blocks saving with a message instead of being dropped silently. In the release detail view, each item links to its content, and release statuses are shown in your interface language.
+
+Via the API:
+
 ```bash
 POST /api/v1/pro/releases
 {
@@ -131,7 +156,7 @@ GET /api/v1/pro/releases/:id/validate
 
 Returns per-item readiness: the content exists in your organization, its workflow state allows publishing (when the Workflows plugin is active), and no conflicting pending action targets the same content. An **empty** release can never be scheduled or published; unready items block with `400` unless you pass `force=true` (in the schedule body or as `?force=true` on publish).
 
-Deleting content that is part of a draft or scheduled release emits a `release.items_removed` warning so release owners can react before the launch window.
+Deleting content that is part of a draft or scheduled release emits a `release.items_removed` event (and a server-log warning) listing the affected releases, so integrations can alert release owners before the launch window. No built-in notification is sent for it.
 
 ### Publishing a Release
 

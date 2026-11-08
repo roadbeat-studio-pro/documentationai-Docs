@@ -23,6 +23,8 @@ The **GraphQL API** plugin auto-generates a full GraphQL SDL schema from your co
 
 ### Migrations
 
+The Studio API applies and tracks plugin migrations itself at startup, so these run automatically — a new one takes effect on the next API start. Run them by hand only if you set `PLUGIN_MIGRATIONS=off` because a deploy step applies them; see [Installation](/installation) for details.
+
 ```bash
 psql -U postgres -d roadbeat_studio -f plugins/pro-graphql/migrations/001_create_graphql_config.sql
 psql -U postgres -d roadbeat_studio -f plugins/pro-graphql/migrations/002_delivery_api.sql
@@ -51,6 +53,8 @@ PUT /api/v1/pro/graphql/config
   These limits are enforced on every query, including batch requests and the public delivery endpoint. A request that exceeds `maxDepth` or `maxComplexity` is rejected rather than executed.
 </Callout>
 
+Request keys are camelCase; the stored configuration that `GET` and `PUT /api/v1/pro/graphql/config` return keeps the database column names (`max_depth`, `rate_limit_per_min`, …). Playground and introspection default to off when `NODE_ENV=production`.
+
 ### Schema Inspection
 
 ```bash
@@ -69,17 +73,20 @@ GET /api/v1/pro/graphql/schema/type/:contentTypeId
 
 ## For Developers: Querying Content
 
+A query names the content type, the `operation` — `findOne` or `findMany` — and its `args`.
+
 ### Single Item Query
 
 ```bash
 POST /api/v1/pro/graphql/query
 {
   "contentType": "news",
-  "single": true,
-  "id": "content-uuid",
-  "locale": "en"
+  "operation": "findOne",
+  "args": { "id": "content-uuid", "locale": "en" }
 }
 ```
+
+Instead of `id` you can pass `slug`. When nothing matches, the result is `null`.
 
 ### Collection Query with Filters
 
@@ -87,19 +94,60 @@ POST /api/v1/pro/graphql/query
 POST /api/v1/pro/graphql/query
 {
   "contentType": "news",
-  "where": {
-    "status": { "eq": "published" },
-    "data.classification.category": { "in": ["politics", "economy"] },
-    "OR": [
-      { "data.priority": { "gte": 5 } },
-      { "data.headline.en": { "endsWith": "(live)" } }
-    ]
-  },
-  "orderBy": "publishedAt_DESC",
-  "limit": 10,
-  "offset": 0
+  "operation": "findMany",
+  "args": {
+    "locale": "en",
+    "where": {
+      "_status": { "eq": "published" },
+      "article_type": { "in": ["report", "interview"] },
+      "OR": [
+        { "_createdAt": { "gte": "2026-01-01" } },
+        { "kicker": { "endsWith": "(live)" } }
+      ]
+    },
+    "orderBy": "_createdAt_DESC",
+    "limit": 10,
+    "skip": 0
+  }
 }
 ```
+
+| Argument | Meaning |
+|----------|---------|
+| `where` | Filters by field — see the operators below |
+| `orderBy` | `<field>_ASC` or `<field>_DESC`; default `_createdAt_DESC`. Only system fields and fields the content type's schema declares are sortable — anything else is rejected with `400` |
+| `limit` | Page size, default 20, at most 100 |
+| `skip` | Number of records to skip |
+| `locale` | Only records in this locale |
+
+#### Field names in filters
+
+- **System fields** start with an underscore and map to the content row: `_status`, `_locale`, `_slug`, `_createdAt`, `_updatedAt`.
+- **Content fields** are the **top-level** keys of the content data, written without a `data.` prefix — `article_type`, `price`. Nested paths such as `seo.meta_title` are not resolved in filters.
+- Without `_status`, a query returns published content only, unless the organization's `includeDraft` setting is on.
+
+### Response
+
+The Studio API wraps every response in a `{ "data": … }` envelope. The query endpoint returns its own `{ result, errors?, extensions? }` object, so the payload arrives at **`data.result`**:
+
+```json
+{
+  "data": {
+    "result": {
+      "items": [
+        { "_id": "…", "_slug": "rail-link", "_status": "published", "_locale": "en", "headline": { "en": "New rail link" } }
+      ],
+      "total": 42
+    },
+    "extensions": { "executionMs": 12 }
+  }
+}
+```
+
+- `findOne` returns the record itself at `data.result`; `findMany` returns `{ items, total }`.
+- Records carry the content fields plus the system fields `_id`, `_modelApiKey`, `_createdAt`, `_updatedAt`, `_status`, `_slug`, `_locale`, `_version`, and `_publishedAt`.
+- An execution failure, or a GraphQL API that is disabled for the organization, comes back as HTTP 200 with `errors` and `result: null`. Depth and cost violations are `400`, rate-limit hits `429`.
+- `extensions.cached` is `true` when the answer came from the per-organization response cache (`cacheTtlSeconds`).
 
 ### Filter Operators
 
@@ -112,7 +160,7 @@ POST /api/v1/pro/graphql/query
 | Combinators | `AND`, `OR` (nestable) |
 
 <Callout kind="tip">
-  Numeric and date fields stored in JSON are cast before comparison, so `{ "data.price": { "gt": 100 } }` orders `9` before `100` the way you would expect, rather than comparing them as strings.
+  Fields the content type's schema declares as numbers, booleans, or dates (`date` / `date-time`) are cast before comparison, so `{ "price": { "gt": 100 } }` treats `9` as smaller than `100` the way you would expect, rather than comparing them as strings. An unknown operator, or `in` / `notIn` without an array, is rejected with `400`.
 </Callout>
 
 ### Batch Queries
@@ -121,13 +169,15 @@ POST /api/v1/pro/graphql/query
 POST /api/v1/pro/graphql/query/batch
 {
   "queries": [
-    { "contentType": "news", "limit": 5, "orderBy": "publishedAt_DESC" },
-    { "contentType": "event", "limit": 3, "where": { "data.schedule.start_date": { "gte": "2026-03-01" } } }
+    { "alias": "latestNews", "contentType": "news", "operation": "findMany", "args": { "limit": 5, "orderBy": "_createdAt_DESC" } },
+    { "alias": "upcoming", "contentType": "event", "operation": "findMany", "args": { "limit": 3 } }
   ]
 }
 ```
 
-The number of queries per batch is bounded, and each one is checked against the same depth and complexity limits as a single query.
+The results are keyed by `alias` (or `<contentType>_<operation>` without one) and arrive at `data.result`, like a single query. A query that fails yields `{ "error": "…" }` under its key instead of failing the whole batch.
+
+A batch holds at most 20 queries; each one is checked against the depth limit, and their **combined** cost against `maxComplexity`.
 
 ### Asset Resolution with Responsive Images
 
@@ -145,9 +195,14 @@ The endpoints above require a Studio session. The **delivery API** is the public
   <Step title="Register a persisted query">
     ```bash
     POST /api/v1/pro/graphql/delivery/queries
-    { "name": "homepage-news", "query": { "contentType": "news", "limit": 10, "orderBy": "publishedAt_DESC" } }
+    {
+      "name": "homepage-news",
+      "contentType": "news",
+      "operation": "findMany",
+      "args": { "locale": "en", "limit": 10, "orderBy": "_createdAt_DESC" }
+    }
     ```
-    The response contains the query **hash** your front-end will call.
+    The response's `query_hash` is the hash your front-end will call. Every key in `args` is a variable a client may later override — and only those.
   </Step>
   <Step title="Create a delivery token">
     ```bash
@@ -162,8 +217,20 @@ The endpoints above require a Studio session. The **delivery API** is the public
     Authorization: Bearer <delivery-token>
     { "variables": { "locale": "de" } }
     ```
+    A variable the registered query does not declare in its `args` is rejected with `400`, so a public client cannot widen `limit` or `where`.
   </Step>
 </Steps>
+
+The delivery endpoint answers in GraphQL's own shape. Because that body already has a `data` key, the Studio envelope passes it through unchanged — the payload sits at `data`, **not** `data.data`, with `extensions` as its sibling:
+
+```json
+{
+  "data": { "items": [ { "_id": "…", "_slug": "rail-link" } ], "total": 42 },
+  "extensions": { "executionMs": 8, "persisted": "<hash>" }
+}
+```
+
+When the GraphQL API is disabled for the organization, the response is `{ "data": { "errors": [ … ] } }` instead. A missing, invalid, revoked, or expired token is `401`; an unknown hash `404`.
 
 ### Delivery guarantees
 

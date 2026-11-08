@@ -23,6 +23,12 @@ description: Solutions for common Studio Pro plugin installation, licensing, and
      ```
 </Expandable>
 
+<Expandable title="API does not start once plugins are enabled (Nest cannot resolve dependencies)" default-open="false">
+  Plugin builds from before **2026-08-08** injected some host services (`EventEmitter2`, `Reflector`) by class. A plugin resolves its own copy of `@nestjs/*`, so the classes never match the host's, and Nest refuses to build the module graph. A related error is `Cannot find module '@nestjs/testing'`: the old `plugin-base` loaded a test helper at runtime.
+
+  Update all Pro plugins together. Current builds resolve host services by string token and load test helpers only in tests.
+</Expandable>
+
 <Expandable title="License key not recognized" default-open="false">
   - Verify the `ROADBEAT_LICENSE_KEY` environment variable is set correctly (no extra whitespace or quotes)
   - Check that the token hasn't expired — decode the JWT at [jwt.io](https://jwt.io) to inspect the `exp` field
@@ -36,7 +42,7 @@ description: Solutions for common Studio Pro plugin installation, licensing, and
 ## Migration Failed
 
 <Expandable title="SQL migration fails with 'relation already exists'" default-open="true">
-  This means the migration was already applied. Pro migrations are idempotent — you can safely skip this error. If you want to re-run, drop the existing tables first (development only):
+  This means the migration was already applied. When the API applies plugin migrations at startup, it treats "already exists" as *applied before* and skips that statement, so this only shows up when you run files by hand with `PLUGIN_MIGRATIONS=off`. Pro migrations are idempotent — you can safely skip this error. If you want to re-run, drop the existing tables first (development only):
 
   ```bash
   psql -U postgres -d roadbeat_studio -c "DROP TABLE IF EXISTS pro_workflows CASCADE;"
@@ -45,6 +51,18 @@ description: Solutions for common Studio Pro plugin installation, licensing, and
   <Callout kind="danger">
     Never drop tables in production. If you need to reset, use a database backup/restore instead.
   </Callout>
+</Expandable>
+
+<Expandable title="A plugin migration failed at API startup" default-open="false">
+  The API applies plugin migrations before the plugins initialize and logs every step with the `[PluginMigrations]` prefix:
+
+  ```bash
+  docker compose logs api | grep "PluginMigrations"
+  ```
+
+  A failed file is rolled back as a whole and not recorded, and that plugin's later migrations are not attempted; the next API start tries again. Fix the cause (usually database permissions, see below) and restart the API.
+
+  A file that was edited after it was applied is **not** re-run — the log warns `changed after it was applied`. Ship schema changes as a new migration file instead.
 </Expandable>
 
 <Expandable title="SQL migration fails with permission errors" default-open="false">
@@ -80,8 +98,37 @@ description: Solutions for common Studio Pro plugin installation, licensing, and
   If you need to bypass the workflow for testing, an admin can temporarily disable the workflow or transition the content directly to the approved state.
 </Expandable>
 
+<Expandable title="New content never enters a workflow" default-open="false">
+  Workflows apply **only through their content-type bindings** — there is no "default workflow" that catches everything. Open the workflow in the builder and pick the content types under **Applies to**; the workflow cards show which types each workflow covers.
+
+  Content created *before* its type was bound is not moved into the workflow retroactively. Open the item and click **Start workflow** in the Workflow sidebar panel. See [Editorial Workflows](/plugins/workflows).
+</Expandable>
+
+<Expandable title="Saving a workflow fails with 400: property should not exist" default-open="false">
+  The API rejects properties it does not know. Two cases come up after upgrading:
+
+  - **`isDefault`** — the default-workflow flag was removed. Drop it from scripts and imported JSON.
+  - **`noSelfApproval`** — plugin builds before **2026-11-07** rejected this transition property, so the four-eyes rule could not be configured. Update the plugin.
+</Expandable>
+
+<Expandable title="Every export job ends with status 'failed'" default-open="false">
+  Plugin builds before **2026-11-06** failed every export when it completed: a database interval was bound with the wrong integer type. The same bug broke retry backoff and stale-lock recovery in Scheduling, plus several retention sweeps.
+
+  Update the plugins and restart the API, which applies `pro-export` migration `006`. Failed jobs now keep their reason, and the job list shows it.
+</Expandable>
+
+<Expandable title="500 error: operator does not exist: uuid = text" default-open="false">
+  Plugin builds before **2026-11-07** compared `uuid` columns with text parameters. In the AI plugin every by-id endpoint (providers, prompts, jobs, budgets, redaction rules) failed; in the Integration Hub flows could not be created at all. Update the plugins.
+
+  Current builds answer a malformed id with `404` and code `NOT_FOUND` instead of a `500`.
+</Expandable>
+
+<Expandable title="An error message shows a code such as AI_PROVIDER_FAILED" default-open="false">
+  Every Pro API error carries a stable `code` and its `params`. The plugin UIs translate the code into your interface language; API clients can switch on it. See [API Error Codes](/help-center/troubleshooting/error-codes) for what each code means and what to do about it.
+</Expandable>
+
 <Expandable title="Content locking prevents editing" default-open="false">
-  If another user holds an exclusive lock on content:
+  The editor's Lock panel acquires the lock on your first edit, so whoever starts typing first holds it. If another user holds an exclusive lock on content:
 
   - Wait for them to finish (locks auto-expire after 5 minutes without heartbeat)
   - Ask an admin to force-unlock: `POST /api/v1/pro/locking/content/:id/lock/force`
@@ -99,19 +146,21 @@ description: Solutions for common Studio Pro plugin installation, licensing, and
 ## Performance
 
 <Expandable title="Audit log table growing too large" default-open="false">
-  Configure retention policies to automatically clean up old entries:
+  Configure retention policies and enforce them:
 
   1. Go to **Audit Log** → **Retention** tab
   2. Create a policy (e.g., delete info-level entries after 90 days)
-  3. Click **Enforce Now** to apply immediately
+  3. Click **Enforce Now** to delete everything older than the policy allows
 
   Or via API:
   ```bash
   POST /api/v1/pro/audit/retention
-  { "retentionDays": 90, "severity": "info" }
+  { "name": "Info after 90 days", "retentionDays": 90, "severity": "info" }
 
   POST /api/v1/pro/audit/retention/enforce
   ```
+
+  Retention is **not** applied on a schedule — logs outlive their policy until it is enforced. Call the enforce endpoint from a daily scheduled job if you need regular cleanup. Plugin builds before **2026-11-06** failed the enforcement query outright, so no retention deletion ran before that update. See [Audit Logging](/plugins/audit).
 </Expandable>
 
 <Expandable title="Scheduled actions not executing" default-open="false">
@@ -121,4 +170,6 @@ description: Solutions for common Studio Pro plugin installation, licensing, and
   2. Check API logs for scheduling processor messages
   3. Verify the scheduled time has passed (check timezone — all times are stored as UTC)
   4. Check the action status: `GET /api/v1/pro/scheduling/pending`
+
+  Plugin builds before **2026-11-06** never emitted their scheduling events, so failed schedules produced no notification and successful ones did not appear in the team activity feed. Update the plugins if you rely on either.
 </Expandable>

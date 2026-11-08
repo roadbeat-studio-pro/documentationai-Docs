@@ -2,6 +2,271 @@
 title: Changelog
 description: Release notes and updates for roadbeat Studio Pro plugins.
 ---
+<Update label="2026-11-08" description="Error codes in every Pro API, AI hardening, accessibility and language quality across all plugin UIs" tags={["feature","security","bugfix"]}>
+  ## Error Codes, AI Hardening, Accessibility & Languages
+
+  ### Error codes in every Pro plugin API
+
+  - **Every error carries a stable `code`** (for example
+    `WORKFLOW_SELF_APPROVAL` or `AI_PROVIDER_FAILED`) and a `params` object with
+    the values in the message. API clients can switch on the code instead of
+    parsing English text. See [API Error Codes](/help-center/troubleshooting/error-codes).
+  - **Plugin UIs show errors in your language.** The UIs translate the code
+    from their own catalog and fill in the params, in all 24 languages. Studio
+    forwards only `params`, so data that self-coded exceptions sent outside it
+    never reached the browser. That is why the AI consent dialog could not
+    open; it works again.
+  - Protocol endpoints — SAML/OIDC/SCIM callbacks, inbound webhooks, GraphQL
+    and API-client validation — carry codes but no UI texts.
+
+  ### AI Assistant
+
+  - **SSRF guard for vision and transcription.** `imageUrl` / `audioUrl` were
+    fetched server-side unchecked, so a signed-in user could make the server
+    call localhost, cloud metadata or Docker-internal services. Now:
+    - Studio's own asset URLs are read from storage, and only for your
+      organization's assets.
+    - Any other URL must be public http(s): no credentials, no private,
+      loopback, link-local or metadata addresses (every DNS answer and every
+      redirect hop is checked), a 15-second timeout, and size caps of 20 MB for
+      images and 25 MB for audio.
+    - Providers never receive a user-supplied URL; they get the file contents.
+  - **A failing provider is a coded `502`**, not a bare `500`:
+    `AI_PROVIDER_FAILED` with the provider and its HTTP status, or
+    `AI_PROVIDER_UNREACHABLE`. The upstream response body is only logged,
+    because it can echo request details.
+  - **Routing failures are `503`** — `AI_NO_PROVIDER` when no provider
+    satisfies the residency policy, `AI_NO_HEALTHY_PROVIDER` when all are
+    down.
+  - **Chat stream errors** arrive as `event: error` with
+    `{ code, message, params }`. Uncoded errors are sent as `INTERNAL_ERROR`
+    without the raw error text.
+  - **By-id endpoints work again.** Providers, prompts, jobs, budgets and
+    redaction rules answered `500` (`uuid = text`) once you had one. A
+    malformed id is now a `404`, and a duplicate name a `409`. Before, a
+    localized database message turned that `409` into a `500`.
+
+  ### Integration Hub
+
+  - **Flows can be created.** Every read or update by id — flows, runs,
+    triggers, connections, consents, agent sessions — failed with `500`, and
+    creating a flow failed outright. A malformed id is now a `404 NOT_FOUND`.
+
+  ### Workflows
+
+  - **Workflow texts in your organization's languages** — name, description,
+    state names and transition labels get one input per enabled organization
+    language, not fixed English/German fields. Every screen shows them in the
+    UI language, falling back to English. See
+    [Editorial Workflows](/plugins/workflows).
+  - **The four-eyes rule can be configured.** Transitions with
+    `noSelfApproval: true` stop content authors from approving their own work
+    (`403 WORKFLOW_SELF_APPROVAL`). The API rejected the property before. For
+    now it can only be set through the API or a JSON import, not in the
+    workflow form — and re-saving the workflow in the form removes it.
+
+  ### Content tools
+
+  - **Saved Views filter builder** — content types, status, languages,
+    authors, date ranges and "published at least once" replace the raw JSON
+    field. Filters the builder does not edit are kept and can be removed
+    explicitly. See [Saved Views](/plugins/saved-views).
+  - **Video picker** — Video Processing searches the library's videos by file
+    name in the job form, the captions tab and the job filter. The job list
+    shows file names instead of UUIDs.
+
+  ### Accessibility
+
+  Every form control in the plugin UIs has an accessible name, icon-only
+  buttons are labeled, and white-on-color buttons reach 4.5:1 contrast. Workflow
+  state badges stay readable in any color, in light and dark mode. Filter
+  dropdowns are named after what they filter, not after their first option.
+  Studio's end-to-end suite checks the Pro screens with axe-core against WCAG
+  2.1 AA. See [Accessibility](/accessibility).
+
+  ### Languages
+
+  - **Correct plural forms** in all 24 languages — "1 element", "3 elementy",
+    "5 elementów" instead of "element(y)" — with locale-formatted numbers.
+  - **Formal address** in Hungarian, Romanian and Estonian, and in the Dutch
+    webhook screens, matching the rest of the UI.
+  - **Established local terms** — the local abbreviation for "AI" (*KI*, *IA*,
+    *MI*, *ИИ*, *ΤΝ* …), *inhoud* / *inhoudstype* in Dutch, *Configuración* in
+    Spanish, and corrected Integration Hub terms in Maltese, Greek and
+    Estonian. See [Languages](/languages).
+</Update>
+
+<Update label="2026-11-06" description="Editorial follow-ups from the end-to-end test run — a task board, workflows for existing content, a readable activity feed, pickers instead of IDs, and runtime fixes" tags={["feature","bugfix","breaking"]}>
+  ## Editorial Follow-ups & Runtime Fixes
+
+  An overnight end-to-end run clicked through every Pro plugin screen like an
+  editor would. It found features that worked in unit tests but not in
+  practice, and forms that asked for IDs nobody can see. This update fixes them.
+
+  ### Workflows & tasks
+
+  - **Manual tasks and a task board** — create tasks by hand, optionally
+    linked to content, with an assignee, priority, due date and tags. Work them
+    on a board (To do / In progress / Done, drag &amp; drop) or in a filtered
+    list, and switch to **Assigned to me**. New endpoints: `POST /pro/tasks`,
+    `PUT /pro/tasks/:id`, `PATCH /pro/tasks/:id/status`,
+    `DELETE /pro/tasks/:id` and `GET /pro/tasks/my`. See
+    [Tasks &amp; Task Board](/plugins/tasks).
+  - **Workflows can be bound to content types in the builder.** The builder
+    always sent an empty binding list, and re-saving a workflow cleared
+    bindings made through the API, so a workflow created in the UI never
+    applied to any content. The form now has a content-type picker with
+    "already used by" hints, and each card shows what it applies to.
+  - **Start a workflow for existing content** — content created before its
+    type was bound gets a **Start workflow** button in the Workflow sidebar
+    (`GET /pro/workflows/instances/:contentId/startable`).
+    `POST …/initialize` now starts only an active workflow bound to the
+    item's type (`400` otherwise) and refuses viewers (`403`).
+  - **Breaking: the "Default workflow" flag is gone.** It was stored but never
+    read — workflows apply only through their content-type bindings. Requests
+    that send `isDefault` get a `400`; migration `006` drops the column.
+    Content templates keep their own, working default flag.
+  - The builder's `allowsPublish` and `taskRules` settings are now accepted
+    and validated; before, the API dropped them.
+  - Content templates follow the content storage shape, so templates saved
+    before the switch no longer open with empty fields. They are converted
+    once at startup.
+  - **A readable activity feed** — entries show people, content titles and
+    content-type names instead of truncated UUIDs, and link to the content.
+    Successful schedules and releases now appear next to the failed ones. See
+    [Team Activity Feed](/plugins/activity-feed).
+
+  ### Events that never left the plugin
+
+  Scheduling, Releases and Locking injected the event emitter by class.
+  Because a plugin resolves its own copy of the event library, that emitter
+  was always missing. `scheduling.action.failed`, `release.failed`,
+  `release.items_removed` and the lock force-unlock and takeover events were
+  never sent, so Notifications never reported a failed schedule. All of them
+  are sent now, plus the new `scheduling.action.scheduled`, `release.created`,
+  `release.scheduled` and `release.published`.
+
+  ### Runtime fixes
+
+  - **Content export works.** Every export job ended as *failed*, because a
+    database interval was bound with the wrong integer type. The same bug sat
+    in 16 queries across 9 plugins: retry backoff and stale-lock recovery in
+    Scheduling, task SLA escalation and activity retention in Workflows,
+    dead-letter alert debouncing and log retention in Webhooks, and the
+    retention and cleanup sweeps in Audit, API Explorer, Preview, Version
+    Comparison and Import. Failed export jobs now keep their reason (migration
+    `006`) and the job list shows it.
+  - **Content locking acquires the lock on your first edit**, as documented.
+    Before, a lock existed only if someone clicked the button, so two editors
+    could work on the same item unnoticed.
+  - **Screens that stayed empty** — four plugin UIs passed the API's
+    `{ data }` envelope to their pages:
+    - AI showed an empty residency mode and a false "non-EU AI egress is
+      possible" warning.
+    - Preview Links showed empty token and link lists.
+    - Webhook Delivery showed an empty delivery log, dead-letter queue and
+      stats.
+    - API Explorer's stats, cURL preview, history and replay did not work, and
+      its Postman export contained `{ "data": … }`.
+  - The SSO admin page compiles again, so IdP metadata import and the
+    certificate list are usable from the UI.
+  - Audit attributes user create, update and delete entries and role changes
+    to the admin who made them, instead of to "System" or to the promoted user.
+
+  ### Content import
+
+  - Pick the target content type from a list. Mapping targets suggest the
+    type's form field ids.
+  - Dot-path targets such as `seo.meta_title` are written as nested fields;
+    before, they became a literal `"seo.meta_title"` key the editor never
+    showed. Registry form ids are mapped to their storage paths for targets,
+    `duplicateKey` and `slugField`.
+  - Types without a title field get readable slugs from their first
+    meaningful text instead of `import-<timestamp>-<random>`.
+
+  ### Pickers instead of IDs
+
+  Release items, export filters, import targets, content-permission rules,
+  new layouts, the audit GDPR export, preview tokens and links, and Webhook
+  Delivery now let you pick content, content types, locales, users or webhooks
+  from a list, with search where the list can be long. Breadcrumbs and status
+  badges that were hard-coded in English follow the UI language.
+
+  ### Notes for operators
+
+  - New migrations: `pro-workflows` `006_drop_workflow_is_default.sql` and
+    `007_manual_tasks.sql`, and `pro-export` `006_job_error_message.sql`.
+    Studio applies plugin migrations at API startup and records them in
+    `plugin_migrations`. Set `PLUGIN_MIGRATIONS=off` if your deploy applies
+    them itself — see [Installation](/installation).
+  - Remove `isDefault` from scripts and workflow JSON you import.
+  - Check your workflows' content-type bindings: workflows created in the UI
+    before this update are bound to no content type and apply to nothing.
+</Update>
+
+<Update label="2026-08-08" description="A complete, typed API reference for every Pro endpoint — and the security fixes it surfaced" tags={["feature","security","bugfix"]}>
+  ## Complete API Reference & Security Fixes
+
+  Documenting every Pro response field meant reading what each endpoint
+  really sends. That pass turned up a few endpoints that sent too much, and
+  SCIM responses that compliant identity providers could not parse. Both are
+  fixed here.
+
+  ### API reference
+
+  - **Every Pro endpoint is in the reference.** Twelve Pro controllers had no
+    OpenAPI tag, so 171 operations were missing from the
+    [Studio API Reference](https://docs.studio.roadbeat.dev/api-reference/overview).
+    They are now filed under the seven Pro areas.
+  - **Real response schemas.** Pro responses used to show only the `{ data }`
+    envelope with "an object" inside; now they list every field. The few
+    exceptions are on purpose: `204` responses, file and stream downloads (audit
+    CSV, video files, bulk ZIPs, Prometheus metrics, OAuth redirects), the AI
+    chat stream, and bodies keyed by dynamic ids such as i18n catalogs.
+  - **Payloads are snake_case.** Most Pro endpoints return database rows
+    directly, so fields are `created_at`, not `createdAt`. The reference shows
+    the fields that are really sent, and Pro schema names carry a `Pro` prefix
+    so they cannot collide with CE schemas.
+
+  ### Security & compliance
+
+  - **SCIM 2.0 works with Entra ID and Okta.** The nine `scim/v2/*` routes now
+    return bare RFC 7644 documents instead of wrapping them in `{ data }`, and
+    `meta.created` / `meta.lastModified` carry real ISO 8601 timestamps instead
+    of empty strings.
+  - **No more secrets in write responses.** `POST` and `PUT /pro/sso/config`
+    returned the stored IdP client secret, and `PUT /pro/incoming-webhooks/:id`
+    returned the HMAC signing secret. Both are masked now, like their `GET`
+    counterparts. The show-once SCIM token on creation is unchanged.
+  - **GDPR erasure pseudonyms are keyed.** The pseudonym HMAC now uses
+    `AUDIT_PSEUDONYM_SECRET`. Without it, the old key is used and the API warns
+    at startup, because those pseudonyms can be confirmed by guessing user ids.
+  - **Audit redaction has no bypass.** Sensitive fields are now redacted for
+    entries posted to `POST /pro/audit` too, before the entry is hashed into the
+    chain.
+  - **`erase` and `unlock` audit entries are filterable** — `?action=` used to
+    reject them with `400`.
+  - **What the hash chain proves, stated plainly.** The audit chain is unkeyed
+    SHA-256. It detects accidental or partial tampering, not a rewrite by
+    someone with direct database access. `GET /pro/audit/verify` no longer
+    implies more.
+
+  ### Platform
+
+  - **Pro plugins boot reliably.** Plugins that injected `EventEmitter2` or
+    `Reflector` by class could stop the API from starting, because a plugin
+    resolves its own copy of `@nestjs/*`. They now resolve host services by
+    string token, and `plugin-base` no longer loads `@nestjs/testing` at runtime.
+
+  ### Notes for operators
+
+  - Set `PRO_SSO_SECRET_KEY`, `PRO_AI_VAULT_KEK` and `AUDIT_PSEUDONYM_SECRET`
+    in production — see [Plugin Secrets](/installation#plugin-secrets). Setting
+    `AUDIT_PSEUDONYM_SECRET` changes the pseudonym of users erased *afterwards*;
+    earlier pseudonyms stay as they are.
+  - SCIM clients that worked around the `{ data }` wrapper must stop unwrapping.
+</Update>
+
 <Update label="2026-08-01" description="Enterprise & platform — zero-leakage hardening, compliance depth, and feature completion across the enterprise plugins" tags={["feature","security","bugfix"]}>
   ## Enterprise & Platform Overhaul
 

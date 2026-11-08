@@ -41,7 +41,7 @@ Every provider declares a residency: **self-hosted**, **EU**, or **non-EU**. Eac
 
 ## Cloud Provider Consent
 
-A **non-EU** provider can only be used once the organization has recorded explicit, logged consent for that provider type. Routing enforces this automatically: EU and self-hosted providers always pass; non-EU providers without consent are blocked, and if they are the *only* eligible candidates the call is refused so the UI can prompt for consent.
+A **non-EU** provider can only be used once the organization has recorded explicit, logged consent for that provider type. Routing enforces this automatically: EU and self-hosted providers always pass; non-EU providers without consent are blocked, and if they are the *only* eligible candidates the call is refused with `403 AI_CONSENT_REQUIRED` — its `params.providerTypes` lists the provider types that need consent, which is what the editor's consent dialog asks for.
 
 <Steps>
   <Step title="Open the Consent tab" icon="shield">
@@ -61,7 +61,7 @@ A **non-EU** provider can only be used once the organization has recorded explic
 
 ## Enforced Zero-Retention
 
-In `eu_only` mode, a **cloud** (non-self-hosted) provider may only be used if it advertises a zero-retention endpoint (`no_retention = true`) **or** the organization has recorded an explicit override. This prevents content silently flowing to a retaining endpoint under an EU-only policy.
+In `eu_only` mode, a **cloud** (non-self-hosted) provider may only be used if it advertises a zero-retention endpoint (`no_retention = true`) **or** the organization has recorded an explicit override. This prevents content silently flowing to a retaining endpoint under an EU-only policy. When only such providers remain, the call is refused with `403 AI_RETENTION_REQUIRED` (`params.providerTypes`).
 
 - Mark a provider's endpoint as **no-retention** when the vendor contractually guarantees zero data retention.
 - If you must use a retaining cloud provider under `eu_only`, an admin can acknowledge a **zero-retention override** for that provider type.
@@ -97,7 +97,7 @@ Budgets stop runaway spend before a call is made. The pre-call gate enforces, in
 2. **Admin budgets** — org-shared and per-user token/cost budgets, per `day` or `month`, with a configurable alert threshold
 3. **License ceilings** — hard `max_ai_tokens_per_day` and `max_ai_cost_per_month` caps from the license tier
 
-A breach returns HTTP **429**; alerts are emitted (and throttled) to admins as a budget approaches and when it blocks.
+A breach returns HTTP **429** with a code that names the limit — `AI_RATE_LIMITED` (`params.limit`), `AI_BUDGET_EXCEEDED` (`params.scope`, `params.period`), or `AI_LICENSE_LIMIT_EXCEEDED` (`params.kind`, `params.period`, `params.limit`); the spend-velocity guard answers `AI_VELOCITY_CEILING` / `AI_VELOCITY_ANOMALY`. Alerts are emitted (and throttled) to admins as a budget approaches and when it blocks.
 
 <Steps>
   <Step title="Open the Usage tab" icon="bar-chart">
@@ -156,7 +156,11 @@ Three controls require the **Business** tier (`ai_advanced_governance`). Each is
   </Card>
 </Columns>
 
-When the entitlement is absent, these endpoints return HTTP **403**; everything else in this page stays available on Team.
+When the entitlement is absent, these endpoints return HTTP **403** with code `AI_FEATURE_NOT_LICENSED` (`params.feature`, `params.tier`); everything else in this page stays available on Team.
+
+## Media Sources
+
+Image and audio URLs sent to vision and transcription never leave Studio as URLs: the gateway loads them under an SSRF guard (public addresses only, every redirect re-checked, 15-second timeout, 20 MB / 25 MB size caps) and passes the file to the provider as data. URLs of Studio's own storage are read directly — and only when the asset belongs to the caller's organization, so a URL cannot be used to read another tenant's media. Details and error codes: [Image and audio sources](/plugins/ai#image-and-audio-sources).
 
 ## API Reference
 

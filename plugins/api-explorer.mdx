@@ -24,6 +24,8 @@ The **API Explorer** plugin provides an interactive API testing interface built 
 
 ### Migrations
 
+The Studio API applies and tracks plugin migrations itself at startup, so these run automatically — a new one takes effect on the next API start. Run them by hand only if you set `PLUGIN_MIGRATIONS=off` because a deploy step applies them; see [Installation](/installation) for details.
+
 ```bash
 psql -U postgres -d roadbeat_studio -f plugins/pro-api-explorer/migrations/001_create_api_explorer_history.sql
 psql -U postgres -d roadbeat_studio -f plugins/pro-api-explorer/migrations/002_redact_history_credentials.sql
@@ -106,6 +108,8 @@ The Explorer deliberately never persists or re-emits your bearer token:
 
 Click **Export collection** in the header to download your saved requests as a Postman v2.1 collection.
 
+When you call the endpoint yourself, note that it returns JSON, not a file download: like every Studio API response, the collection arrives inside the `{ "data": … }` envelope, built from up to 100 of your saved requests. Save the value of `data` as the `.json` file to import into Postman — that is what the **Export collection** button does.
+
 <Callout kind="tip">
   This is the safe way to hand an API workflow to a colleague: the collection carries the requests, not the credentials, and the work stays on your EU-hosted Studio instead of a third-party cloud workspace.
 </Callout>
@@ -115,7 +119,7 @@ Click **Export collection** in the header to download your saved requests as a P
 History shows timestamp, method and endpoint, status code, response time, and the request/response bodies. Actions: **Replay**, **Save** (with name and tags), **Delete**.
 
 ```bash
-# List history
+# List history (paginated: data.items + data.total)
 GET /api/v1/pro/api-explorer/history
 
 # Replay a request

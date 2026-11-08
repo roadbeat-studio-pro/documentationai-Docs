@@ -1,0 +1,97 @@
+---
+title: Team Activity Feed
+description: A readable stream of what your team did recently — content edits, comments, workflow moves, scheduling and releases — scoped to your organization.
+---
+
+## Overview
+
+The **Team Activity Feed** answers "what happened while I was away?" in plain language: *Anna published "Summer Festival"*, *Ben moved "Opening hours" draft → in_review*, *System published the release "Launch"*. It is part of the **Editorial Workflows** plugin (`pro-workflows`) and opens from **Activity** in the **Workflows & Publishing** sidebar group.
+
+<Callout kind="info">
+  The feed is the team's working stream, not a compliance record. It is compact, readable by every member of the organization, and pruned after 90 days. For a tamper-evident, admin-only trail use [Audit Logging](/plugins/audit).
+</Callout>
+
+## What Is Recorded
+
+The feed records events that Studio and the Pro plugins already emit — nothing extra is tracked. Each entry names who acted (or **System**), what happened, and the content item it concerns.
+
+| Filter | Entry | Source event |
+|--------|-------|--------------|
+| **Content** | created · updated · published · unpublished · deleted | `content.afterCreate` / `afterUpdate` / `afterPublish` / `afterUnpublish` / `afterDelete` |
+| **Comments** | commented on | `comment.afterCreate` |
+| **Workflows** | moved (with *from → to* state) | `workflow.transitioned` |
+| **Scheduling** | scheduled (with the action — Publish, Unpublish, Archive — and the time) | `scheduling.action.scheduled` |
+| **Scheduling** | schedule failed for | `scheduling.action.failed` |
+| **Releases** | created the release (with the item count) | `release.created` |
+| **Releases** | scheduled the release (with the time) | `release.scheduled` |
+| **Releases** | published the release (with the item count) | `release.published` |
+| **Releases** | release failed | `release.failed` |
+
+Scheduling and release entries require the [Content Scheduling](/plugins/scheduling) plugin. When the scheduler publishes a release at its scheduled time, the entry has no person as actor and is shown as **System**.
+
+## Using the Feed
+
+Open **Activity** in the sidebar under **Tools**, next to Workflows and Tasks. It needs the `workflows.view` permission.
+
+- **Filter tabs** — All, Content, Comments, Workflows, Scheduling, Releases.
+- **Names, not ids** — actors appear with their display name (or e-mail), content with its title in your interface language (falling back to the slug), and the content type next to it.
+- **Jump to the content** — click a content title to open the item in the editor.
+- **Load more** — the newest 50 entries load first; **Load more** pages further back.
+
+<Callout kind="tip">
+  If a user or content item has since been deleted, its entry stays in the feed but can no longer be named — it shows a shortened id instead.
+</Callout>
+
+## Retention and Privacy
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `ACTIVITY_RETENTION_DAYS` | `90` | Entries older than this are deleted by a daily sweep |
+
+- **Organization-scoped** — every entry carries its organization; events without one are dropped, and the feed only ever returns your organization's entries. Entries are deleted together with their organization.
+- **Minimal data** — an entry stores the actor's user id, the verb, the resource id and a small context object (state names, content type id, scheduled action and time, release name and item count, or the error message of a failed schedule). Names and titles are not copied into the feed; they are looked up from the live user and content records when the feed is read.
+- **Best-effort** — recording never blocks or fails the operation it observes.
+
+Activity entries are stored in `pro_activities` (migration `005_create_activities.sql`, applied automatically with the plugin's other migrations — see [Editorial Workflows](/plugins/workflows#migrations)).
+
+## API Reference
+
+The feed endpoint is documented in the [Studio API Reference](https://docs.studio.roadbeat.dev/api-reference/overview) under the `pro/activities` tag. Any authenticated member of the organization can read it.
+
+```bash
+GET /api/v1/pro/activities?resource=workflow&limit=50
+Authorization: Bearer YOUR_TOKEN
+```
+
+<ParamField query="resource" param-type="string" required="false">
+  `content`, `comment`, `workflow`, `schedule` or `release`.
+</ParamField>
+
+<ParamField query="actorId" param-type="string" required="false">
+  Only entries by this user.
+</ParamField>
+
+<ParamField query="resourceId" param-type="string" required="false">
+  History of a single resource (e.g. one content item).
+</ParamField>
+
+<ParamField query="before" param-type="string" required="false">
+  ISO timestamp cursor — pass the previous response's `cursor` to get the next (older) page.
+</ParamField>
+
+<ParamField query="limit" param-type="integer" required="false">
+  Page size, 1–100 (default 50).
+</ParamField>
+
+The response is `{ "data": [ … ], "cursor": "…" }`, newest first. Each entry carries `id`, `actor_id`, `verb`, `resource`, `resource_id`, `meta` and `created_at`, plus the resolved `actor_name`, `content_id`, `content_title`, `content_slug` and `content_type_name` (each `null` when it cannot be resolved). `cursor` is the `created_at` of the last entry, `null` for an empty page.
+
+## Related
+
+<Columns cols={2}>
+  <Card title="Tasks & Task Board" icon="check-square" href="/plugins/tasks">
+    Assign and track the work behind the activity.
+  </Card>
+  <Card title="Content Scheduling" icon="calendar-clock" href="/plugins/scheduling">
+    Scheduled actions and releases that appear in the feed.
+  </Card>
+</Columns>

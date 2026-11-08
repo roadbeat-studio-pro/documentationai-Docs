@@ -33,31 +33,26 @@ The simplest deployment method. The Pro Docker image is the CE base image with a
           # ... same env vars as CE
     ```
   </Step>
-  <Step title="Set the license key">
-    Add your license key to `.env`:
+  <Step title="Set the license key and plugin secrets">
+    Add your license key to `.env`, together with the [plugin secrets](#plugin-secrets) for the plugins you run:
 
     ```bash
     ROADBEAT_LICENSE_KEY=eyJhbGciOiJFZDI1NTE5...
+    INTEGRATIONS_KEK=<openssl rand -base64 32>
+    PRO_AI_VAULT_KEK=<openssl rand -base64 32>
+    PRO_SSO_SECRET_KEY=<openssl rand -hex 32>
+    AUDIT_PSEUDONYM_SECRET=<openssl rand -base64 32>
     ```
-  </Step>
-  <Step title="Run database migrations">
-    Pro plugins add their own tables (all prefixed with `pro_`). Run migrations on first deploy:
-
-    ```bash
-    docker compose exec api node -e "require('./dist/migrate-plugins')"
-    ```
-
-    Or apply SQL files manually — see each plugin's documentation for its migration file.
   </Step>
   <Step title="Start the stack">
     ```bash
     docker compose up -d
     ```
 
-    Pro plugins load automatically. Check the logs to confirm:
+    On startup the API applies the plugins' database migrations (see [Database Migrations](#database-migrations)), then loads the Pro plugins. Check the logs to confirm:
 
     ```bash
-    docker compose logs api | grep "plugin"
+    docker compose logs api | grep -i "plugin"
     ```
   </Step>
 </Steps>
@@ -89,18 +84,15 @@ Install Pro plugins into an existing CE instance via the private npm registry.
     ROADBEAT_LICENSE_KEY=eyJhbGciOiJFZDI1NTE5...
     PLUGINS_DIR=./plugins
     ```
-  </Step>
-  <Step title="Run migrations">
-    Apply each plugin's SQL migration against your Studio database:
 
-    ```bash
-    psql -U postgres -d roadbeat_studio -f plugins/pro-workflows/migrations/001_create_workflow_tables.sql
-    ```
+    Add the [plugin secrets](#plugin-secrets) for the plugins you installed.
   </Step>
   <Step title="Restart Studio">
     ```bash
     pnpm --filter api dev
     ```
+
+    The API applies the plugins' SQL migrations on startup, before the plugins initialize — no separate migration step. See [Database Migrations](#database-migrations).
   </Step>
 </Steps>
 
@@ -128,33 +120,89 @@ The response should list your licensed plugins:
   In the Admin UI, Pro plugins appear as new menu items in the sidebar. You should see sections like "Workflows & Publishing", "Content Tools", etc.
 </Callout>
 
+## Plugin Secrets
+
+Several plugins encrypt credentials or key pseudonyms with a secret you provide through the environment. Set them **before** the plugins store their first secret — some only take effect for values written afterwards.
+
+<Callout kind="alert">
+  Most of these degrade **silently** when unset: the plugin starts and works, only without the protection. The vault keys (`INTEGRATIONS_KEK`, `PRO_AI_VAULT_KEK`, `LAYOUTS_KEK`) are the exception — with `NODE_ENV=production` (or `REQUIRE_VAULT_KEK=true`) the plugin refuses to start without one. A vault key (any `*_KEK`) that is set but is not base64-encoded 32 bytes always stops the plugin.
+</Callout>
+
+| Variable | Plugin | Consequence if unset |
+|----------|--------|----------------------|
+| `PRO_SSO_SECRET_KEY` | pro-sso | IdP client secrets are stored **unencrypted** — encryption becomes a logged no-op. A 64-hex-character key (`openssl rand -hex 32`) or any passphrase (SHA-256 derived). |
+| `AUDIT_PSEUDONYM_SECRET` | pro-audit | GDPR erasure pseudonyms are keyed by a value published in the plugin source, so `erased-user-<hex>` is re-identifiable by anyone who can guess a user ID. Logged as a warning at startup. Setting it later changes the pseudonym for subsequent erasures — see [Audit Logging](/plugins/audit#pseudonym-secret). |
+| `PRO_AI_VAULT_KEK` | pro-ai | Outside production, AI provider credentials are encrypted with an insecure built-in development key and `GET /api/v1/pro/ai/status` reports `vaultKeyMode: "insecure-dev"`. In production the plugin does not start. Base64-encoded 32 bytes. |
+| `INTEGRATIONS_KEK` | pro-integrations | Same behaviour as `PRO_AI_VAULT_KEK` for connection credentials. Also the fallback key for the three variables below. Base64-encoded 32 bytes. |
+| `LAYOUTS_KEK` | pro-layouts | Falls back to `INTEGRATIONS_KEK`; without either, the Git sync access token uses an insecure development key — and in production the plugin does not start. |
+| `API_EXPLORER_KEK` | pro-api-explorer | Falls back to `INTEGRATIONS_KEK`; without either, saving secrets in an API Explorer environment is refused (`400 VAULT_KEY_MISSING`). |
+| `EXPORT_DELIVERY_KEK` | pro-export | Falls back to `INTEGRATIONS_KEK`; without either, scheduled exports that need delivery credentials are refused (`400 VAULT_KEY_MISSING`); schedules without credentials still work. |
+| `INTEGRATIONS_METRICS_TOKEN` | pro-integrations | The Prometheus endpoint `GET /api/v1/pro/integrations/metrics` is served **without authentication** — your network is then the only boundary. When set, scrapers must send `Authorization: Bearer <token>`. |
+
+Generate the base64 keys with `openssl rand -base64 32`. Keep every key in your secret store: losing a vault key makes the credentials it encrypted unreadable, and changing `PRO_SSO_SECRET_KEY` means re-entering the IdP client secret.
+
+<Callout kind="info">
+  The [Studio CE configuration reference](https://studio-docs.roadbeat.net/deployment/configuration) documents `PRO_SSO_SECRET_KEY`, `PRO_AI_VAULT_KEK`, and `AUDIT_PSEUDONYM_SECRET` alongside the CE variables.
+</Callout>
+
+## Database Migrations
+
+Each plugin ships its tables as plain SQL files in its `migrations/` directory, and the shared plugin base ships its own in `packages/plugin-base/migrations/`. **The Studio API applies them itself** — there is no separate migration command:
+
+1. On startup, after plugin discovery and **before** any plugin initializes, the API applies the plugin-base migrations first, then each discovered plugin's files in file-name order.
+2. Every applied file is recorded in the `plugin_migrations` table (plugin, file name, checksum, time) and never run again.
+3. Each file runs in one transaction. Statements whose objects already exist are skipped, so installations whose tables were created by hand are baselined automatically on the first start.
+4. Any other error rolls the whole file back, records nothing, and skips that plugin's later migrations. The API still starts and logs the failure — check the log for `Plugin migration … failed` after an upgrade.
+5. A file that changed after it was applied is reported (`changed after it was applied — not re-run`), not re-executed.
+
+New migrations that ship with a plugin update are applied on the next API restart.
+
+<Callout kind="tip">
+  To apply migrations in a deploy step instead (for example with a database role the API does not have), set `PLUGIN_MIGRATIONS=off` and run the files yourself, plugin base first, each plugin in file-name order:
+
+  ```bash
+  psql -U postgres -d roadbeat_studio -f packages/plugin-base/migrations/001_create_retention_settings.sql
+  psql -U postgres -d roadbeat_studio -f plugins/pro-workflows/migrations/001_create_workflow_tables.sql
+  # … every file of every installed plugin, in order
+  ```
+
+  `PLUGIN_BASE_MIGRATIONS_DIR` overrides where the API looks for the plugin-base files (default `<PLUGINS_DIR>/../packages/plugin-base/migrations`).
+</Callout>
+
+See [Plugin database migrations](https://studio-docs.roadbeat.net/plugins/overview#plugin-database-migrations) in the Studio CE documentation for the runner's details.
+
 ## Database Tables
 
-All Pro plugin tables use the `pro_` prefix to avoid conflicts with CE tables. Each plugin includes SQL migration files in its `migrations/` directory.
+All Pro plugin tables use the `pro_` prefix to avoid conflicts with CE tables.
 
 | Plugin | Tables |
 |--------|--------|
-| pro-workflows | `pro_workflows`, `pro_workflow_instances`, `pro_workflow_tasks` |
-| pro-scheduling | `pro_scheduled_actions`, `pro_releases`, `pro_release_items` |
-| pro-audit | `pro_audit_logs`, `pro_audit_retention_policies`, `pro_audit_saved_searches` |
-| pro-locking | `pro_content_locks` |
-| pro-advanced-roles | `pro_content_type_permissions`, `pro_custom_roles`, `pro_resource_permissions` |
-| pro-sso | `pro_sso_configs`, `pro_sso_role_mappings` |
-| pro-environments | `pro_environments`, `pro_environment_aliases`, `pro_environment_content`, `pro_sync_logs` |
-| pro-export | `pro_export_jobs`, `pro_export_templates` |
+| plugin base (shared) | `pro_retention_settings` |
+| pro-ai | `pro_ai_providers`, `pro_ai_models`, `pro_ai_routes`, `pro_ai_prompts`, `pro_ai_jobs`, `pro_ai_budgets`, `pro_ai_consents`, `pro_ai_embeddings`, `pro_ai_redaction_rules`, `pro_ai_log_settings`, `pro_ai_usage_log`, `pro_ai_vault`, `pro_ai_vault_dek` |
+| pro-integrations | `pro_connectors`, `pro_connections`, `pro_flows`, `pro_flow_versions`, `pro_flow_runs`, `pro_flow_run_steps`, `pro_triggers`, `pro_agent_sessions`, `pro_agent_messages`, `pro_agent_actions`, `pro_consents`, `pro_egress_policies`, `pro_quota_policies`, `pro_quota_usage`, `pro_oauth_clients`, `pro_oauth_states`, `pro_webhook_nonces`, `pro_integration_audit`, `pro_vault`, `pro_vault_dek` |
+| pro-workflows | `pro_workflows`, `pro_workflow_versions`, `pro_workflow_instances`, `pro_workflow_tasks`, `pro_content_templates`, `pro_activities` |
+| pro-scheduling | `pro_scheduled_actions`, `pro_releases`, `pro_release_items`, `pro_recurring_schedules` |
+| pro-locking | `pro_content_locks`, `pro_lock_audit` |
+| pro-preview | `pro_preview_tokens`, `pro_shareable_previews`, `pro_preview_comments` |
+| pro-saved-views | `pro_saved_views`, `pro_saved_view_user_state` |
 | pro-import | `pro_import_jobs`, `pro_imported_content` |
-| pro-graphql | `pro_graphql_configs` |
+| pro-export | `pro_export_jobs`, `pro_export_templates`, `pro_export_schedules`, `pro_export_schedule_runs` |
+| pro-versioning | `pro_version_retention_policies`, `pro_version_redactions` (versions themselves live in CE's `content_versions`) |
+| pro-layouts | `pro_custom_layouts`, `pro_layout_git_config`, `pro_layout_gallery`, `pro_layout_gallery_installs`, `pro_layout_gallery_ratings`, `pro_layout_vault`, `pro_layout_vault_dek` |
+| pro-advanced-roles | `pro_content_type_permissions`, `pro_custom_roles`, `pro_resource_permissions` |
+| pro-sso | `pro_sso_configs`, `pro_sso_role_mappings`, `pro_sso_certificates` |
+| pro-audit | `pro_audit_logs`, `pro_audit_retention_policies`, `pro_audit_saved_searches` |
+| pro-graphql | `pro_graphql_configs`, `pro_graphql_api_tokens`, `pro_graphql_persisted_queries` |
+| pro-realtime | `pro_realtime_docs` (collaborative-editing documents; presence stays in memory) |
+| pro-webhooks | `pro_webhook_retry_configs`, `pro_webhook_delivery_log`, `pro_incoming_webhooks`, `pro_incoming_webhook_logs` |
 | pro-notifications | `pro_notifications`, `pro_notification_channels`, `pro_notification_preferences` |
-| pro-media | `pro_video_jobs`, `pro_transcode_profiles` |
-| pro-preview | `pro_preview_tokens`, `pro_shareable_previews` |
-| pro-webhooks | `pro_webhook_retries`, `pro_dead_letters`, `pro_incoming_webhooks`, `pro_incoming_webhook_logs` |
+| pro-environments | `pro_environments`, `pro_environment_aliases`, `pro_environment_content`, `pro_sync_logs` |
+| pro-bulk-ops | `pro_bulk_op_log` |
+| pro-media | `pro_video_jobs`, `pro_video_renditions`, `pro_video_captions`, `pro_transcode_profiles` |
 | pro-whitelabel | `pro_themes`, `pro_branding_config` |
-| pro-layouts | `pro_custom_layouts` |
-| pro-api-explorer | `pro_api_explorer_history` |
+| pro-api-explorer | `pro_api_explorer_history`, `pro_api_explorer_environments` |
 
-<Callout kind="info">
-  Some plugins have no database tables: **pro-realtime** (in-memory only), **pro-versioning** (uses CE's `content_versions`), and **pro-bulk-ops** (uses CE asset tables).
-</Callout>
+The migration bookkeeping table `plugin_migrations` belongs to Studio CE.
 
 ## Updating
 
@@ -162,23 +210,27 @@ All Pro plugin tables use the `pro_` prefix to avoid conflicts with CE tables. E
   <Tab title="Docker" icon="server">
     ```bash
     docker compose pull
-    docker compose exec api node -e "require('./dist/migrate-plugins')"
     docker compose up -d
     ```
+
+    The new image's plugin migrations are applied when the API starts.
   </Tab>
   <Tab title="Manual" icon="terminal">
     ```bash
     # Update each plugin package
     npm update @roadbeat-pro/workflows --prefix plugins/pro-workflows
 
-    # Apply any new migrations
-    psql -U postgres -d roadbeat_studio -f plugins/pro-workflows/migrations/002_add_new_table.sql
-
-    # Restart
+    # Restart — new migrations are applied on startup
     pnpm --filter api dev
     ```
+
+    With `PLUGIN_MIGRATIONS=off`, apply the plugin's new migration files yourself before restarting.
   </Tab>
 </Tabs>
+
+<Callout kind="info">
+  **Upgrading from releases before November 2026:** three migrations are new — `pro-workflows/006_drop_workflow_is_default.sql` (removes the unused "default workflow" flag), `pro-workflows/007_manual_tasks.sql` (manual tasks and the task board), and `pro-export/006_job_error_message.sql` (failed export jobs keep their reason). Your existing, hand-created tables are detected and recorded on the first start; nothing needs to be run by hand.
+</Callout>
 
 ## API Documentation
 

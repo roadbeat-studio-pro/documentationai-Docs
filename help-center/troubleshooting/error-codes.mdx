@@ -1,0 +1,381 @@
+---
+title: API Error Codes
+description: The error contract of every Studio Pro plugin API — stable codes, params, translated messages — and a reference of the codes admins and integrators hit.
+---
+
+## Overview
+
+Every error a Studio Pro plugin API returns carries a stable, machine-readable **`code`** and the values of its message in **`params`**. The English `message` is a fallback for people reading raw responses; clients should decide on `code`.
+
+- **API clients** switch on `code` instead of parsing English text, and read the details (which provider, which limit, which state) from `params`.
+- **The Pro screens** translate the code into the interface language — all 24 EU languages — filling in `params`.
+
+<Callout kind="info">
+  Codes are stable identifiers — unlike the English message, which may be reworded. New codes can appear with new features, so always handle an unknown `code` by falling back to the HTTP status.
+</Callout>
+
+## The error body
+
+Studio's global error filter turns every error — from CE and from every Pro plugin — into the same JSON body:
+
+```json
+{
+  "statusCode": 502,
+  "error": "Bad Gateway",
+  "code": "AI_PROVIDER_FAILED",
+  "message": "AI provider 'Mistral (EU)' failed (HTTP 503)",
+  "timestamp": "2026-11-07T22:15:58.412Z",
+  "path": "/api/v1/pro/ai/assist",
+  "requestId": "6f1c2a9e-4b7d-4e55-9a51-0c2f8d3e7b10",
+  "params": { "provider": "Mistral (EU)", "status": 503 }
+}
+```
+
+<ResponseField name="statusCode" field-type="integer" required="true">
+  The HTTP status, repeated in the body.
+</ResponseField>
+
+<ResponseField name="error" field-type="string" required="true">
+  The HTTP reason phrase (`Bad Request`, `Not Found`, …).
+</ResponseField>
+
+<ResponseField name="code" field-type="string" required="true">
+  The stable error code. Specific codes such as `AI_PROVIDER_FAILED` come from the plugin; when a plugin did not set one, a generic code derived from the status is used (see below).
+</ResponseField>
+
+<ResponseField name="message" field-type="string | array" required="true">
+  English explanation. For request-validation failures (`VALIDATION_FAILED`) it is an **array** with one entry per failed rule.
+</ResponseField>
+
+<ResponseField name="params" field-type="object">
+  The values interpolated into the message — e.g. `{ "provider": "Mistral (EU)", "status": 503 }`. Present whenever the code has parameters.
+</ResponseField>
+
+<ResponseField name="errors" field-type="array">
+  Per-field details (`path`, `message`, `keyword`) for `422` content-validation errors.
+</ResponseField>
+
+<ResponseField name="timestamp" field-type="string" required="true">
+  ISO 8601 time of the error.
+</ResponseField>
+
+<ResponseField name="path" field-type="string" required="true">
+  The request path.
+</ResponseField>
+
+<ResponseField name="requestId" field-type="string" required="true">
+  The request's correlation id, also sent as the `X-Request-Id` response header. Quote it when you report a problem — server logs are keyed by it.
+</ResponseField>
+
+<Callout kind="alert">
+  The filter forwards **only** `params`. Other top-level fields a plugin attaches to an exception never reach the client — read every value from `params`. Outside production (`NODE_ENV` not `production`) the body additionally contains a `stack` field; never rely on it.
+</Callout>
+
+### Generic codes
+
+When an error carries no specific code, the code is derived from the status:
+
+| Status | Code | Notes |
+|---|---|---|
+| `400` | `VALIDATION_FAILED` | The request body failed validation; `message` lists each problem (e.g. `property isDefault should not exist` for a field the endpoint does not accept) |
+| `400` | `BAD_REQUEST` | Any other bad request |
+| `401` | `UNAUTHORIZED` | Missing or invalid JWT |
+| `403` | `FORBIDDEN` | Your role may not do this |
+| `403` | `ACTION_PREVENTED` | A plugin vetoed the action (for example a workflow publish guard or an Integration Hub publish guard); `message` is the reason |
+| `404` | `NOT_FOUND` | Unknown resource — also a path id that is not a valid UUID in the Integration Hub |
+| `409` | `CONFLICT` | Conflicting state |
+| `429` | `TOO_MANY_REQUESTS` | Rate limited |
+| `500` | `INTERNAL_ERROR` | Unexpected error; the message is always `Internal server error` and the cause is only in the server log |
+| `502` / `504` | `UPSTREAM_UNAVAILABLE` | An upstream service failed |
+| `503` | `SERVICE_UNAVAILABLE` | Temporarily unavailable |
+
+## Handling errors in a client
+
+Successful responses arrive in the `{ "data": … }` envelope; errors arrive in the body above. A small client wrapper covers both:
+
+```typescript
+interface StudioError {
+  statusCode: number;
+  code: string;
+  message: string | string[];
+  params?: Record<string, unknown>;
+  requestId?: string | null;
+}
+
+class StudioApiError extends Error {
+  constructor(readonly body: StudioError) {
+    super(Array.isArray(body.message) ? body.message.join('. ') : body.message);
+  }
+}
+
+async function studio<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const res = await fetch(`https://studio.example.com/api/v1${path}`, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${process.env.STUDIO_TOKEN}`,
+      'Content-Type': 'application/json',
+      ...init.headers,
+    },
+  });
+  if (!res.ok) throw new StudioApiError((await res.json()) as StudioError);
+  return ((await res.json()) as { data: T }).data;
+}
+
+try {
+  const result = await studio('/pro/ai/assist', {
+    method: 'POST',
+    body: JSON.stringify({ action: 'shorten', text: 'A long paragraph …' }),
+  });
+} catch (err) {
+  if (!(err instanceof StudioApiError)) throw err;
+  const { code, params, statusCode } = err.body;
+  switch (code) {
+    case 'AI_CONSENT_REQUIRED':
+      // params.providerTypes: string[] — an admin has to grant consent first
+      break;
+    case 'AI_RATE_LIMITED':
+    case 'AI_PROVIDER_FAILED':
+    case 'AI_PROVIDER_UNREACHABLE':
+    case 'AI_NO_HEALTHY_PROVIDER':
+      // transient — retry with backoff
+      break;
+    default:
+      // unknown code: decide on the status
+      if (statusCode >= 500) {
+        // retry later
+      } else {
+        throw err; // a 4xx will fail the same way again
+      }
+  }
+}
+```
+
+<Callout kind="tip">
+  Retry `429`, `502`, `503`, and `504` with exponential backoff. Do not retry other `4xx` responses unchanged — fix the request, the permissions, or the configuration the code points to.
+</Callout>
+
+## How the Pro screens show errors
+
+Each plugin's interface catalog has a text per code under `errors.codes.<CODE>`, translated into all 24 EU languages. A Pro screen picks the message to show in this order:
+
+<Steps>
+  <Step title="The translated code" icon="languages">
+    `errors.codes.<CODE>` from the plugin's catalog, with `params` filled in — e.g. *The AI provider “Mistral (EU)” returned an error (HTTP 503).* Generic codes (`BAD_REQUEST`, `NOT_FOUND`, …) are skipped here, because the server message is more specific.
+  </Step>
+  <Step title="The API message" icon="message-square">
+    The English `message` from the response — except for `INTERNAL_ERROR`, `SERVICE_UNAVAILABLE`, and `UPSTREAM_UNAVAILABLE`, where the screen's own context text is more useful than "Internal server error".
+  </Step>
+  <Step title="The screen's own text" icon="file-text">
+    The action-specific fallback, such as *The workflow could not be saved.*
+  </Step>
+  <Step title="A generic message" icon="alert-circle">
+    `errors.unexpected` — *Something went wrong. Please try again.*
+  </Step>
+</Steps>
+
+For `ACTION_PREVENTED`, the API message is the specific veto reason and is shown as is.
+
+## Special cases
+
+<ExpandableGroup>
+  <Expandable title="AI chat stream: errors arrive as an SSE event" default-open="false">
+    `POST /api/v1/pro/ai/chat` streams Server-Sent Events, so the HTTP status is already `200` when a failure occurs — including pre-call refusals such as missing consent or an exhausted budget. The error arrives as an `error` event with the same fields, then the stream closes:
+
+    ```text
+    event: error
+    data: {"code":"AI_BUDGET_EXCEEDED","message":"AI org month budget exceeded","params":{"scope":"org","period":"month"}}
+    ```
+
+    An error without a code is sent as `INTERNAL_ERROR` with the message `Internal server error`; the details stay in the server log. See [Errors in the chat stream](/plugins/ai#errors-in-the-chat-stream).
+  </Expandable>
+
+  <Expandable title="Content locking: a clash is not an error status" default-open="false">
+    `POST /api/v1/pro/locking/content/:contentId/lock` answers `201` even when another user holds an exclusive lock. The body then has `success: false` and `code: "LOCKED_BY_OTHER"`; an advisory lock held by someone else gives `success: true` with `code: "ALSO_EDITING"`. Both carry `params.userName`.
+  </Expandable>
+
+  <Expandable title="Malformed ids" default-open="false">
+    A path id that is not a valid UUID never causes a `500`. The Integration Hub answers `404 NOT_FOUND` for it; the AI gateway answers the specific not-found code of the resource (`AI_PROVIDER_NOT_FOUND`, `AI_PROMPT_NOT_FOUND`, `AI_JOB_NOT_FOUND`).
+  </Expandable>
+
+  <Expandable title="Protocol endpoints: codes without screen texts" default-open="false">
+    Endpoints that machines call — SAML and OIDC callbacks, SCIM 2.0 provisioning, inbound webhooks (`POST /api/v1/hooks-pro/:slug` and the incoming webhooks of Advanced Webhooks), and the GraphQL and GraphQL Delivery APIs — return codes too, but no Pro screen shows them, so they have no catalog text. Their English `message` is the explanation. SCIM endpoints answer with the statuses RFC 7644 prescribes (for example `409` for an existing `userName`, `400` for an unsupported filter), but in Studio's standard error body: the SCIM `detail` text is not passed on, and `message` reads `Http Exception`. See [SSO Integration](/plugins/sso).
+  </Expandable>
+</ExpandableGroup>
+
+## Code reference
+
+The tables below list every code of the AI gateway and the Integration Hub, and the codes of the other plugins that admins and integrators run into most. The complete, current set of codes with a screen text is each plugin's English catalog, served by your Studio:
+
+```bash
+curl https://studio.example.com/api/v1/plugins/pro-workflows/ui/i18n/en.json
+# → the "errors.codes" object lists every code with its text
+```
+
+Codes that are not in a catalog are protocol or developer errors; their English `message` explains them.
+
+### AI Provider Gateway
+
+`pro-ai` — complete. Background in [AI Provider Gateway](/plugins/ai#errors-and-failure-handling) and [AI Privacy & Governance](/plugins/ai-governance).
+
+| Status | Code | Meaning | `params` |
+|---|---|---|---|
+| `400` | `AI_REQUEST_INVALID` | Malformed request — a required field is missing, an unknown writing action, or a source URL that is not `http(s)`, contains credentials, or redirects more than 3 times | `action` / `op` where relevant |
+| `400` | `AI_PROVIDER_NO_VISION` | The routed provider cannot analyze images | — |
+| `400` | `AI_PROVIDER_NO_TRANSCRIPTION` | The routed provider cannot transcribe | — |
+| `400` | `AI_PROVIDER_NO_EMBEDDINGS` | The routed provider (Anthropic) offers no embeddings | — |
+| `400` | `AI_SOURCE_URL_BLOCKED` | The image/audio URL resolves to a private or internal address | `hostname` |
+| `400` | `AI_SOURCE_UNREACHABLE` | The image/audio host cannot be resolved or reached within 15 s | `hostname` |
+| `400` | `AI_SOURCE_TOO_LARGE` | The file exceeds 20 MB (image) or 25 MB (audio) | `kind`, `maxMb` |
+| `400` | `AI_EMBEDDINGS_UNAVAILABLE` | Semantic search without the pgvector embedding store | — |
+| `400` | `AI_EMBEDDING_MODEL_MISMATCH` | An embedding from another model than the pinned `AI_MODEL_EMBED` | `model`, `model2` |
+| `400` | `AI_EMBEDDING_DIMENSIONS_MISMATCH` | An embedding with another dimensionality than `AI_EMBED_DIMENSIONS` | `vectorCount`, `dimensions` |
+| `400` | `AI_NO_TEXT_CONTENT` | The content has no text fields to summarize | — |
+| `400` | `AI_CONTENT_TYPE_MISSING` | The content item has no content type | `op` |
+| `403` | `AI_CONSENT_REQUIRED` | A non-EU provider needs the organization's consent first | `providerTypes`, `providers` |
+| `403` | `AI_RETENTION_REQUIRED` | Under `eu_only`, the cloud provider needs a zero-retention endpoint or an override | `providerTypes`, `providers` |
+| `403` | `AI_CLOUD_PROVIDERS_NOT_LICENSED` | Non-EU providers need the Business tier | `providerTypes`, `providers` |
+| `403` | `AI_FEATURE_NOT_LICENSED` | A Business capability (advanced governance) without the entitlement | `feature`, `tier` |
+| `404` | `AI_PROVIDER_NOT_FOUND` | Unknown or malformed provider id | — |
+| `404` | `AI_PROMPT_NOT_FOUND` | Unknown or malformed prompt id | — |
+| `404` | `AI_PROMPT_NOT_DELETABLE` | The prompt does not exist or is a protected global default | — |
+| `404` | `AI_JOB_NOT_FOUND` | Unknown or malformed job id | — |
+| `404` | `ASSET_NOT_FOUND` | A storage URL that is not an asset of your organization | — |
+| `404` | `CONTENT_NOT_FOUND` | The referenced content item does not exist | `contentId` |
+| `404` | `CONTENT_TYPE_NOT_FOUND` | The referenced content type does not exist | `contentType` / `contentTypeId` |
+| `409` | `AI_PROVIDER_EXISTS` | A provider with this name already exists in the scope | `name` |
+| `429` | `AI_RATE_LIMITED` | Per-user requests per minute exceeded | `limit` |
+| `429` | `AI_BUDGET_EXCEEDED` | An org or user budget is used up | `scope`, `period` |
+| `429` | `AI_LICENSE_LIMIT_EXCEEDED` | The license's daily token or monthly cost ceiling is reached | `kind`, `period`, `limit` |
+| `429` | `AI_VELOCITY_CEILING` | An automation caller exceeded its short-window token ceiling | `caller`, `limit`, `windowSec` |
+| `429` | `AI_VELOCITY_ANOMALY` | Org-wide spend burst, with `AI_VELOCITY_ENFORCE=hard` | `windowTokens`, `baseline`, `windowSec` |
+| `502` | `AI_PROVIDER_FAILED` | The provider answered with an HTTP error | `provider`, `status` |
+| `502` | `AI_PROVIDER_UNREACHABLE` | The provider could not be reached or timed out | `provider` |
+| `502` | `AI_SOURCE_FETCH_FAILED` | The image/audio URL answered with a non-2xx status | `kind`, `status` |
+| `503` | `AI_NO_PROVIDER` | No provider satisfies the residency mode for the task | `mode`, `task` |
+| `503` | `AI_NO_HEALTHY_PROVIDER` | No eligible provider is healthy or supports the capability | `task` |
+
+### Integration Hub
+
+`pro-integrations` — complete. Background in [Integration Hub](/plugins/integrations#ids-and-errors).
+
+| Status | Code | Meaning | `params` |
+|---|---|---|---|
+| `400` | `INTEGRATIONS_REQUEST_INVALID` | Malformed request (missing message or subject, unsupported auth type, …) | `authType` where relevant |
+| `400` | `INTEGRATIONS_NAME_REQUIRED` · `INTEGRATIONS_API_KEY_REQUIRED` · `INTEGRATIONS_CREDENTIALS_REQUIRED` · `INTEGRATIONS_CLIENT_CREDENTIALS_REQUIRED` · `INTEGRATIONS_OAUTH_URLS_REQUIRED` | A required connection field is missing | — |
+| `400` | `CONNECTOR_NOT_FOUND` | Unknown connector key in a request (`404` on `GET /connectors/:key`) | `connectorKey` / `key` |
+| `400` | `CONNECTION_NOT_ACTIVE` | The connection is not active | `connectionId`, `status` |
+| `400` | `CONNECTION_REAUTH_REQUIRED` | The OAuth connection must be reconnected | `id` |
+| `400` | `CONNECTION_REFRESH_FAILED` | The OAuth token could not be refreshed right now | `id`, `message` |
+| `400` | `OAUTH_NOT_CONFIGURED` | No OAuth client is set up for this connector | `connectorKey` |
+| `400` | `OAUTH_CLIENT_MISSING` · `OAUTH_STATE_INVALID` | OAuth callback with a removed client, or an unknown/expired state | — |
+| `400` | `MCP_URL_REQUIRED` · `MCP_HTTPS_REQUIRED` · `MCP_HOST_BLOCKED` | The MCP server URL is missing, not HTTPS, or internal | `host` |
+| `400` | `MCP_CONNECT_FAILED` | The MCP server did not respond as expected | `msg` |
+| `400` | `FLOW_DEFINITION_INVALID` · `FLOW_DEFINITION_MISSING` | The flow graph is invalid, or the flow has no version | — |
+| `400` | `TRIGGER_TYPE_INVALID` · `TRIGGER_CONFIG_INVALID` · `TRIGGER_CRON_INVALID` · `TRIGGER_CONNECTOR_REQUIRED` | Invalid trigger configuration | `type` / `err` |
+| `400` | `TRIGGER_URL_BLOCKED` | A poll trigger's URL resolves to an internal address | — |
+| `400` | `RUN_NOT_RETRYABLE` · `RUN_NOT_CANCELLABLE` · `RUN_NOT_AWAITING_CONFIRMATION` | The run's status does not allow this | `status` |
+| `400` | `AGENT_EGRESS_BUDGET_EXCEEDED` | The agent session reached its outgoing-data cap | — |
+| `400` / `409` | `AGENT_ACTION_NOT_PENDING` | The action was already handled (`409` if it already executed) | `status` |
+| `401` | `WEBHOOK_SIGNATURE_INVALID` · `WEBHOOK_NO_SECRET` | Inbound webhook: bad signature or timestamp, or a trigger without a secret | `reason` |
+| `403` | `INTEGRATIONS_FEATURE_NOT_LICENSED` | The capability needs a higher tier | `feature`, `tier` |
+| `403` | `INTEGRATIONS_LIMIT_EXCEEDED` | A license count cap (`max_flows`, `max_connections`) is reached | `resource`, `limit` |
+| `404` | `NOT_FOUND` | A path id that is not a valid UUID | — |
+| `404` | `FLOW_NOT_FOUND` · `FLOW_VERSION_NOT_FOUND` · `RUN_NOT_FOUND` · `TRIGGER_NOT_FOUND` · `CONNECTION_NOT_FOUND` · `CONSENT_NOT_FOUND` · `AGENT_SESSION_NOT_FOUND` · `AGENT_ACTION_NOT_FOUND` | Unknown id in your organization | the id (`version` for flow versions) |
+| `404` | `WEBHOOK_NOT_FOUND` · `WEBHOOK_INACTIVE` | Inbound webhook: unknown slug, or the trigger is disabled / its flow is not active | — |
+| `409` | `WEBHOOK_REPLAY_DETECTED` | Inbound webhook: the nonce was already used | — |
+| `429` | `INTEGRATIONS_QUOTA_EXCEEDED` | Run quota (per minute / per day) reached | `reason` |
+| `503` | `INTEGRATIONS_AI_PLUGIN_INACTIVE` | Agent or AI flow authoring without an active `pro-ai` | — |
+| `503` | `AI_FLOW_GENERATION_FAILED` | The AI could not generate a flow | — |
+| `503` | `FLOW_COMPILE_FAILED` | The flow could not be compiled for the engine | `detail` |
+
+### Editorial Workflows & Tasks
+
+`pro-workflows` — most common. See [Editorial Workflows](/plugins/workflows).
+
+| Status | Code | Meaning | `params` |
+|---|---|---|---|
+| `400` | `WORKFLOW_TRANSITION_INVALID` | The current state cannot move to the requested one | `from`, `to`, `allowed` |
+| `400` | `WORKFLOW_COMMENT_REQUIRED` | The transition needs a comment | `action` |
+| `400` | `WORKFLOW_NOT_FOR_TYPE` | The workflow is not active for the content's type | `workflowId`, `type` |
+| `400` | `WORKFLOW_ALREADY_RUNNING` | The content is already in a workflow | `contentId`, `state` |
+| `400` | `WORKFLOW_HAS_ACTIVE_INSTANCES` | A workflow with running instances cannot be deleted | `count` |
+| `400` | `WORKFLOW_NO_INITIAL` · `WORKFLOW_ONE_INITIAL` · `WORKFLOW_MULTIPLE_INITIAL` · `WORKFLOW_TRANSITION_FROM_UNKNOWN` · `WORKFLOW_TRANSITION_TO_UNKNOWN` | The definition is not a valid state machine | `states` / `from` / `to` |
+| `403` | `WORKFLOW_ROLE_REQUIRED` | Your role may not perform this transition | `action`, `roles` |
+| `403` | `WORKFLOW_SELF_APPROVAL` | Four-eyes rule: the content's author cannot perform this transition | `action` |
+| `403` | `WORKFLOW_VIEWER_READONLY` · `TASK_VIEWER_READONLY` | Viewers cannot start workflows or change tasks | — |
+| `404` | `WORKFLOW_NOT_FOUND` · `WORKFLOW_NOT_RUNNING` · `TASK_NOT_FOUND` · `USER_NOT_FOUND` | Unknown workflow or task, content not in a workflow, assignee not in the organization | the id |
+| `409` | `WORKFLOW_STATE_CONFLICT` | Someone else changed the state first — reload and retry | `state` |
+| `409` | `TASK_DELETE_WORKFLOW` · `TASK_CONTENT_FIXED` | Workflow tasks cannot be deleted (cancel them) or relinked to other content | — |
+
+### Content Scheduling
+
+`pro-scheduling` — most common. See [Content Scheduling](/plugins/scheduling).
+
+| Status | Code | Meaning | `params` |
+|---|---|---|---|
+| `400` | `SCHEDULE_DATE_PAST` · `SCHEDULE_DATE_TOO_FAR` | The date must be in the future and within one year | — |
+| `400` | `RRULE_INVALID` · `RECURRENCE_NO_OCCURRENCE` | Invalid recurrence rule, or one that never occurs within 800 days | `chunk` |
+| `400` | `RELEASE_EMPTY` · `RELEASE_NOT_READY` | The release has no items, or items that fail its checks | `items` |
+| `400` | `RELEASE_NOT_DRAFT_EDIT` · `RELEASE_NOT_DRAFT_SCHEDULE` · `RELEASE_ITEMS_LOCKED` · `RELEASE_NOT_SCHEDULED` · `RELEASE_NOT_FAILED` · `RELEASE_NOT_PUBLISHABLE` | The release's status does not allow this | `status` |
+| `400` | `SCHEDULED_ACTION_NOT_PENDING` | Only pending scheduled actions can be cancelled | `status` |
+| `404` | `RELEASE_NOT_FOUND` · `SCHEDULED_ACTION_NOT_FOUND` · `RECURRING_SCHEDULE_NOT_FOUND` · `CONTENT_NOT_FOUND` | Unknown id | the id |
+
+### Security & Access
+
+`pro-advanced-roles`, `pro-sso`, `pro-audit`, `pro-locking` — most common.
+
+| Status | Code | Meaning | `params` |
+|---|---|---|---|
+| `400` | `ROLE_BUILTIN_READONLY` · `ROLE_SYSTEM_UNDELETABLE` | Built-in and system roles cannot be changed or deleted | `slug` |
+| `400` | `ROLE_IN_USE` | The role is still assigned to users | `slug`, `count` |
+| `409` | `ROLE_NAME_RESERVED` | The role name is reserved | `slug` |
+| `403` | `PERMISSION_INSPECT_ADMIN_ONLY` | Only admins can inspect other users' or roles' permissions | — |
+| `400` | `SSO_METADATA_URL_NOT_HTTPS` · `SSO_METADATA_URL_PRIVATE` · `SSO_METADATA_URL_UNRESOLVABLE` · `SSO_METADATA_FETCH_FAILED` · `SSO_METADATA_NO_CERTIFICATES` · `SSO_METADATA_TOO_LARGE` | The IdP metadata import failed | `status` for fetch failures |
+| `409` | `SSO_CONFIG_EXISTS` | The organization already has an SSO configuration | — |
+| `401` | `SAML_SIGNATURE_INVALID` · `SAML_VALIDATION_FAILED` · `SSO_STATE_INVALID` · `SSO_JIT_DISABLED` · `OIDC_TOKEN_EXCHANGE_FAILED` | SSO login callback refused | `status` for OIDC |
+| `401` | `RATE_LIMITED` | Too many SSO login probes from one IP address (30 per minute) | — |
+| `401` | `SCIM_TOKEN_MISSING` · `SCIM_TOKEN_INVALID` | SCIM request without a valid bearer token | — |
+| `409` | `SCIM_USER_EXISTS` | SCIM create for a `userName` that already exists | — |
+| `400` | `AUDIT_FILTER_INVALID` · `AUDIT_REPORT_UNAVAILABLE` | Invalid audit query filter or report type | `name`, `allowed` / `type` |
+| `400` | `LOCK_ALREADY_HELD` | You already hold the lock | — |
+| `403` | `LOCK_FORCE_ADMIN_ONLY` · `LOCK_AUDIT_ADMIN_ONLY` | Force-unlock and lock history are admin-only | — |
+
+### Content, Media & Delivery
+
+Most common codes of the remaining plugins.
+
+| Status | Code | Plugin | Meaning | `params` |
+|---|---|---|---|---|
+| `409` | `ENV_TARGET_MODIFIED` | Environments | The target entry was edited after the last promotion — pass `force` to overwrite | `targetContentId`, `date` |
+| `409` | `ENV_ALIASES_POINT_HERE` | Environments | Aliases still point at the environment you are deleting | `aliases` |
+| `403` | `ENV_PRODUCTION_UNDELETABLE` · `ENV_HAS_CONTENT` | Environments | The production environment, or one with content, cannot be deleted | `count` |
+| `409` | `LAYOUT_DRAFT_CONFLICT` | Custom Layouts | The draft changed since you loaded it | — |
+| `409` | `LAYOUT_EXISTS` · `LAYOUT_ID_TAKEN` | Custom Layouts | The layout id is already used | `id`, `source` |
+| `400` | `LAYOUT_DEFINITION_INVALID` · `LAYOUT_TOO_LARGE` | Custom Layouts | The layout definition is invalid or too large | `details` / `size`, `limit` |
+| `400` | `IMPORT_DUPLICATE_KEY_UNMAPPED` | Content Import | The duplicate key is not produced by any field mapping | `key`, `fields` |
+| `400` | `IMPORT_ASSET_URL_INVALID` · `IMPORT_ASSET_TYPE_UNSUPPORTED` | Content Import | An asset URL in the data cannot be imported | `url` |
+| `400` | `EXPORT_CRON_INVALID` | Content Export | Invalid schedule expression | `cronError` |
+| `400` | `ASSET_NOT_VIDEO` · `CAPTION_INVALID_VTT` · `CAPTION_TOO_LARGE` | Video Processing | Not a video asset, or an invalid / oversized WebVTT file | `assetId` / `errors` / `limit` |
+| `400` | `CHANNEL_WEBHOOK_URL_HTTPS` · `CHANNEL_WEBHOOK_URL_PRIVATE` · `CHANNEL_WEBHOOK_HOST_NOT_ALLOWED` | Notifications | The Slack/Teams/Discord webhook URL is not HTTPS, internal, or not that service's host | `hostname`, `type` |
+| `400` | `THEME_CONTRAST_FAILED` · `THEME_CSS_REJECTED` | White-Labeling | The theme fails the WCAG contrast gate, or the custom CSS contains forbidden constructs | `count`, `pair` / `violations` |
+| `400` | `GRAPHQL_QUERY_TOO_DEEP` · `GRAPHQL_QUERY_TOO_COMPLEX` | GraphQL API | The query exceeds the depth or cost limit | `depth`, `maxDepth` / `totalCost`, `maxComplexity` |
+| `401` | `GRAPHQL_TOKEN_MISSING` · `GRAPHQL_TOKEN_INVALID` · `GRAPHQL_TOKEN_EXPIRED` · `GRAPHQL_TOKEN_REVOKED` | GraphQL API | Delivery-token problem on the public GraphQL endpoint | — |
+| `429` | `RATE_LIMITED` | GraphQL API, Preview API, White-Labeling | Too many requests (the GraphQL Delivery API answers this with `400`) | `limit` (GraphQL) |
+| `401` | `PREVIEW_TOKEN_MISSING` · `PREVIEW_TOKEN_INVALID` · `PREVIEW_LINK_INVALID` | Preview API | Missing or invalid preview token; invalid, expired, or exhausted shareable link, or a wrong link password (`PREVIEW_LINK_INVALID` can also be `404`) | — |
+| `401` | `INCOMING_WEBHOOK_SIGNATURE_INVALID` · `INCOMING_WEBHOOK_STALE` | Advanced Webhooks | Incoming webhook with a bad signature or an expired timestamp | — |
+| `404` | `WEBHOOK_DELIVERY_NOT_RETRYABLE` | Advanced Webhooks | The delivery cannot be retried | `deliveryId` |
+| `401` | `REALTIME_TOKEN_MISSING` · `REALTIME_TOKEN_INVALID` | Real-time | WebSocket connection without a valid token | — |
+| `400` | `VERSION_RETENTION_INVALID` | Version Comparison | Invalid retention setting | — |
+| `400` | `SAVED_VIEW_CONFIG_INVALID` | Saved Views | Invalid view configuration | — |
+| `400` | `BULK_ZIP_TOO_LARGE` | Bulk Operations | The ZIP download would exceed the size limit | `size`, `limit` (MB) |
+
+## Related
+
+<Columns cols={2}>
+  <Card title="Common Issues" icon="alert-triangle" href="/help-center/troubleshooting/common-issues">
+    Installation, licensing, and runtime problems.
+  </Card>
+  <Card title="Languages" icon="languages" href="/languages">
+    How Pro screens follow the Studio interface language.
+  </Card>
+</Columns>

@@ -1,38 +1,49 @@
 ---
 title: Audit Logging
-description: Immutable audit trail with change tracking, compliance reports, retention policies, and analytics.
+description: Append-only, tamper-evident audit trail with change tracking, GDPR erasure, compliance reports, retention policies, and analytics.
 ---
 
 ## Overview
 
-The **Audit Logging** plugin provides a comprehensive, immutable audit trail for all significant actions in Studio. Every content change, user action, and system event is recorded with full context — who did what, when, and exactly what changed.
+The **Audit Logging** plugin provides a comprehensive, append-only audit trail for all significant actions in Studio. Every content change, user action, and security event is recorded with full context — who did what, when, and exactly what changed.
 
 ## Key Features
 
-- **Immutable, tamper-evident entries** — every action is logged with user, resource, changes, severity, and category, linked into a per-organization SHA-256 hash chain
-- **Chain verification** — one call walks the chain and reports the first broken link, so silent edits or deletions are detectable
-- **Change tracking** — old vs new field values stored as JSONB diffs
+- **Append-only, tamper-evident entries** — every action is logged with actor, resource, changes, severity, and category, linked into a per-organization SHA-256 hash chain
+- **Chain verification** — one call walks the chain and reports the first broken link, so careless or accidental edits and deletions are detectable
+- **Change tracking** — old vs new field values stored as JSONB diffs, with secret-like fields redacted on every write
+- **Correct attribution** — user and role changes are recorded against the admin who made them
 - **Compliance reports** — generate GDPR, user-access, data-changes, permission-changes, and API-access reports
 - **Complete exports** — download **all** matching audit logs as JSON or CSV (no silent row cap); CSV cells are guarded against spreadsheet formula injection
-- **GDPR erasure support** — when a user is erased, their audit rows are pseudonymized in place and the chain is re-linked
-- **Retention policies** — configurable auto-cleanup rules (30–3,650 days)
+- **GDPR erasure support** — when a user is erased, their audit rows are pseudonymized in place with a server-keyed pseudonym and the chain is re-linked
+- **Retention policies** — per-category and per-severity rules (30–3,650 days), applied on demand
 - **Saved searches** — save and share filter combinations for repeated queries
 - **Analytics dashboard** — breakdowns by action, resource, severity, category, and top users
-- **Event-driven** — automatically captures content and user lifecycle events
+- **Event-driven** — automatically captures content, user, and security lifecycle events
 
 ## For Admins: Configuration
 
-### Migration
+### Migrations
 
-```bash
-psql -U postgres -d roadbeat_studio -f plugins/pro-audit/migrations/001_create_audit_tables.sql
-psql -U postgres -d roadbeat_studio -f plugins/pro-audit/migrations/002_add_saved_searches.sql
-psql -U postgres -d roadbeat_studio -f plugins/pro-audit/migrations/003_add_source.sql
-psql -U postgres -d roadbeat_studio -f plugins/pro-audit/migrations/004_tamper_evidence.sql
-psql -U postgres -d roadbeat_studio -f plugins/pro-audit/migrations/005_gdpr_scrub.sql
-```
+The migrations ship in `plugins/pro-audit/migrations/` and are applied by Studio at startup (see [Installation](/installation#database-migrations)):
+
+| File | Purpose |
+|------|---------|
+| `001_create_audit_tables.sql` | Audit log and retention policies |
+| `002_add_saved_searches.sql` | Saved searches |
+| `003_add_source_column.sql` | Event source column |
+| `004_tamper_evidence.sql` | Hash chain and append-only trigger |
+| `005_erasure_scrub.sql` | The sanctioned update path for GDPR erasure |
 
 Tables created: `pro_audit_logs`, `pro_audit_retention_policies`, `pro_audit_saved_searches`
+
+### Pseudonym Secret
+
+<Callout kind="alert">
+  **Set `AUDIT_PSEUDONYM_SECRET` before your first GDPR erasure** (generate one with `openssl rand -base64 32`). Without it, erasure pseudonyms are keyed by a value that ships in the plugin source plus the organization ID — which appears on every audit row — so anyone who can guess a user ID can confirm which `erased-user-<hex>` belongs to them. That is not anonymisation. The plugin still starts without the secret and logs a warning at every startup.
+</Callout>
+
+Pseudonyms are stable for a given secret, so an erased user's activity still correlates. Setting (or changing) the secret changes the pseudonym minted for a user: subjects erased before the change keep their old pseudonym, and someone erased on both sides of it appears under two values. This cannot be migrated afterwards — erasure has already destroyed the original user IDs — so set the secret before going live.
 
 ### Tamper Evidence
 
@@ -40,28 +51,50 @@ Every entry carries `prev_hash`/`entry_hash` links in a per-organization hash ch
 
 ```bash
 GET /api/v1/pro/audit/verify
-# → { valid: true } or the first broken link with its position
+# → { "data": { "valid": true, "checkedRows": 1284, "legacyRows": 17,
+#               "firstBrokenId": null, "anchored": true } }
 ```
 
-Retention deletions write a **checkpoint entry** anchoring the hash of the last removed row, so pruning old logs never breaks verifiability. The verification run itself is recorded as an audit entry.
+`firstBrokenId` names the first entry whose hash or link no longer matches; `anchored` is `false` when history was removed without the retention checkpoint that keeps it verifiable; `legacyRows` counts entries written before the hash chain existed (migration 004), which are reported but not treated as failures. Retention deletions write a **checkpoint entry** anchoring the hash of the last removed row, so pruning old logs never breaks verifiability. The verification run itself is recorded as an `audit_verify` entry.
+
+<Callout kind="info">
+  **What a clean verification proves — and what it does not.** The chain uses unkeyed SHA-256. `valid: true` means the trail is internally consistent: nothing was edited, re-ordered, dropped, or re-attributed without the chain being rebuilt. It is **not** proof against someone with write access to `pro_audit_logs`, who can rewrite entries and recompute a chain that verifies clean. Protection against that comes from the append-only trigger, least-privilege database credentials, and shipping logs to a separate system.
+</Callout>
 
 ### GDPR Erasure
 
-When CE erases a user (GDPR Art. 17), the plugin **pseudonymizes** that user's audit rows in place — identity fields are replaced with a stable HMAC pseudonym so per-actor analytics still work — and the hash chain is re-linked with a scrub checkpoint recording what happened.
+When CE erases a user (GDPR Art. 17), the plugin **pseudonymizes** that user's audit rows in place — `user_email` becomes the user's pseudonym (`erased-user-<16 hex>`), IP address and user agent are cleared, and email-like strings are scrubbed from labels and change diffs — so per-actor analytics still work without identity. The hash chain is re-linked from the first scrubbed row, a scrub checkpoint records what happened, and an `erase` entry is written. See [Pseudonym Secret](/plugins/audit#pseudonym-secret) for how the pseudonym is keyed.
+
+### Redaction of Change Diffs
+
+Before any entry is stored — whether captured from an event or posted manually to `POST /api/v1/pro/audit` — its `changes` object is cleaned:
+
+- Fields whose name looks like a secret (`password`, `secret`, `token`, `api_key`, `credential`, `private_key`, …) are stored as `[REDACTED]`.
+- Values longer than 2,000 characters (for example large rich-text bodies) are replaced with `[TRUNCATED <n> chars]`.
+
+Redaction runs before the entry is hashed, so the chain covers exactly what was persisted.
 
 ### Automatic Event Capture
 
 The plugin automatically logs these events:
 
-| Event | Severity | Category |
-|-------|----------|----------|
-| Content created | `info` | `content` |
-| Content updated | `info` | `content` |
-| Content deleted | `warning` | `content` |
-| Content published | `info` | `content` |
-| User created | `info` | `user` |
-| User updated | `info` | `user` |
-| User deleted | `warning` | `user` |
+| Event | Action | Severity | Category |
+|-------|--------|----------|----------|
+| Content created / updated / published | `create` / `update` / `publish` | `info` | `content` |
+| Content deleted | `delete` | `warning` | `content` |
+| User created / updated | `create` / `update` | `info` | `user` |
+| User deleted | `delete` | `warning` | `user` |
+| User role changed | `role_change` (resource `role`) | `warning` | `user` |
+| Login | `login` | `info` | `auth` |
+| Locked account unlocked | `unlock` | `warning` | `auth` |
+| User erased (GDPR) | `erase` | `warning` | `user` |
+| User deprovisioned (SCIM/SSO) | `deprovision` | `warning` | `auth` |
+| Password login blocked by SSO enforcement | `login_blocked` | `warning` | `auth` |
+| SSO certificate expiring | `settings_change` | `warning` | `auth` |
+
+Content entries are attributed to the editor who made the change. User entries and the `role_change` entry are attributed to the **admin who performed the change**, not to the affected user; changes made by the system or by users themselves (self-service) carry no actor and show as *System*. Failed logins are not recorded, because CE emits them without an organization context.
+
+Every action can be used as a filter, including `erase` and `unlock`.
 
 ### Retention Policies
 
@@ -75,12 +108,16 @@ Configure how long audit logs are retained:
     Switch to the Retention tab to manage retention policies.
   </Step>
   <Step title="Create a policy">
-    Define a retention period (30–3,650 days), category filter, and severity filter. Logs matching the policy are automatically deleted after the retention period.
+    Define a retention period (30–3,650 days), an optional category filter, and an optional severity filter.
   </Step>
-  <Step title="Enforce manually (optional)">
-    Click **Enforce Now** to immediately apply retention policies and delete expired logs.
+  <Step title="Enforce the policies">
+    Click **Enforce Now** (or call `POST /api/v1/pro/audit/retention/enforce`) to delete every log older than its matching policy's retention period. The response lists how many entries each policy removed.
   </Step>
 </Steps>
+
+<Callout kind="alert">
+  **Retention is not applied on a schedule.** Policies take effect only when they are enforced, so logs outlive their retention period until someone runs **Enforce Now** or calls the endpoint. If you must meet a deletion deadline, run the endpoint from a scheduled job (for example a daily cron calling the API with an admin token).
+</Callout>
 
 ### Compliance Reports
 
@@ -88,13 +125,13 @@ Generate compliance reports from the **Compliance** tab:
 
 | Report Type | Description |
 |------------|-------------|
-| `user-access` | All actions by a specific user in a date range |
+| `user-access` | Login and session activity in a date range |
 | `data-changes` | All content modifications with before/after values |
 | `permission-changes` | Role and permission modifications |
 | `api-access` | API key usage and access patterns |
 | `gdpr-data-export` | Full GDPR data export for a specific user |
 
-Reports can be exported as JSON or CSV.
+For the GDPR data export you choose the user from a list of your organization's members — no user ID to look up. Reports can be exported as JSON or CSV.
 
 <Callout kind="info">
   **Exports are complete and spreadsheet-safe.** The export endpoint pages through
@@ -118,15 +155,16 @@ Editors with appropriate permissions can browse the audit log to see:
 
 ## API Reference
 
-All audit endpoints are in the [Studio API Reference](https://docs.studio.roadbeat.dev/api-reference/overview) under the audit-related tags.
+All audit endpoints are in the [Studio API Reference](https://docs.studio.roadbeat.dev/api-reference/overview) under the `pro-audit` tag. Entries are returned as raw rows with snake_case field names (`user_email`, `resource_id`, `entry_hash`, …).
 
 | Endpoint | Description |
 |----------|-------------|
-| `GET /api/v1/pro/audit` | Query audit logs with filters |
+| `GET /api/v1/pro/audit` | Query audit logs with filters (response carries `data` plus a sibling `total`) |
+| `POST /api/v1/pro/audit` | Append a manual entry (admin only; `changes` is redacted like every other entry) |
 | `GET /api/v1/pro/audit/entry/:id` | Get single audit entry |
 | `GET /api/v1/pro/audit/export` | Export logs (JSON/CSV) |
 | `GET /api/v1/pro/audit/stats` | Analytics dashboard data |
-| `GET /api/v1/pro/audit/verify` | Walk the tamper-evidence hash chain |
+| `GET /api/v1/pro/audit/verify` | Walk the tamper-evidence hash chain (admin only) |
 | `GET /api/v1/pro/audit/retention` | List retention policies |
 | `POST /api/v1/pro/audit/retention/enforce` | Enforce retention now |
 | `GET /api/v1/pro/audit/searches` | List saved searches |

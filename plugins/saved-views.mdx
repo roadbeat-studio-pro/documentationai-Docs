@@ -9,7 +9,8 @@ The **Saved Views** plugin lets editors persist their most-used content list con
 
 ## Key Features
 
-- **Persist filter combinations** — save any content list state (content type, status, locale, sort, search, view mode, page size) as a named view; configurations are validated on save
+- **Persist filter combinations** — save any content list state (content types, status, languages, authors, date ranges, sort, search, view mode, page size) as a named view; configurations are validated on save
+- **Filter builder** — pick content types, statuses, languages, and authors from lists and set date ranges, instead of writing filter JSON by hand
 - **Quick recall** — switch between saved views with a single click
 - **Default view** — mark a view as your personal default so the content list opens with it
 - **Shared views** — share views with the whole organization or only with a specific role
@@ -22,6 +23,8 @@ The **Saved Views** plugin lets editors persist their most-used content list con
 ## For Admins: Setup
 
 ### Migrations
+
+The Studio API applies and tracks plugin migrations itself at startup, so these run automatically — a new one takes effect on the next API start. Run them by hand only if you set `PLUGIN_MIGRATIONS=off` because a deploy step applies them; see [Installation](/installation) for details.
 
 ```bash
 psql -U postgres -d roadbeat_studio -f plugins/pro-saved-views/migrations/001_create_saved_views.sql
@@ -90,7 +93,8 @@ The plugin includes an Angular Elements frontend that must be built before the U
     - **View Mode** — table, list, grid, masonry, calendar, map, or globe
     - **Sort By / Sort Order** — choose the field and direction
     - **Page Size** — 25, 50, or 100 items per page
-    - **Filters** — content type, status, locale, and search query
+    - **Search term** — an optional saved search query
+    - **Filters** — built with the filter builder (see below)
     - **Icon and Color** — visual customization for quick identification
     - **Shared** — toggle to make the view available to others. The share scope is either the **whole organization** (default) or **only users with a specific role** (e.g. share an editorial triage view with editors only).
   </Step>
@@ -99,6 +103,45 @@ The plugin includes an Angular Elements frontend that must be built before the U
 <Callout kind="alert">
   Sharing exposes the view's **filters and saved search text** to the selected audience — the editor shows a notice when you enable sharing.
 </Callout>
+
+### Building Filters
+
+The **Filters** section of the view form builds the same filters the content list uses. Every list is multi-select; leave a group empty to not filter on it.
+
+| Filter | What you pick |
+|--------|---------------|
+| **Content types** | Any number of your organization's content types — type in the search box to narrow a long list; selected types stay on top |
+| **Status** | Draft, Published, Unpublished, Archived |
+| **Languages** | The organization's enabled languages (shown when more than one is enabled) |
+| **Authors** | Organization members who created the content (shown when you may read the member list) |
+| **Published / Created / Updated** | A date range per date; an open end is closed like the content list does — from 1970-01-01, or up to today |
+| **Published at least once** | Only content that carries a publish date, i.e. has been published at some point |
+
+<Callout kind="info">
+  Filters set in the content list that the builder does not edit — such as type-specific field filters — are **kept** when you save. The form tells you how many there are; click **Remove them** to drop them from the view.
+</Callout>
+
+The builder stores the filters under `config.filters` in the content list's own format:
+
+```json
+{
+  "viewMode": "table",
+  "sortBy": "updatedAt",
+  "sortOrder": "desc",
+  "pageSize": 50,
+  "search": "climate",
+  "filters": {
+    "contentTypeId": ["news", "event"],
+    "status": ["draft", "published"],
+    "locale": ["de"],
+    "createdById": ["<user id>"],
+    "publishedDate": { "gte": "2026-01-01", "lte": "2026-06-30" },
+    "hasBeenPublished": true
+  }
+}
+```
+
+`createdDate` and `updatedDate` take the same `{ "gte", "lte" }` range as `publishedDate`.
 
 ### Default View
 
@@ -124,10 +167,8 @@ Each saved view stores the following settings:
 | **Sort By** | Updated, Created, Published, Slug, Title, Status |
 | **Sort Order** | Ascending or Descending |
 | **Page Size** | 25, 50, or 100 |
-| **Content Type** | Filter to a specific content type |
-| **Status** | Filter by publish status |
-| **Locale** | Filter by content locale |
 | **Search** | Saved search query |
+| **Filters** | Content types, status, languages, authors, date ranges, "published at least once", plus any further content list filters — see [Building Filters](#building-filters) |
 
 ## Plugin Details
 

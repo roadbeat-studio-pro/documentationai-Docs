@@ -23,6 +23,8 @@ The **Notifications** plugin provides a full notification system for Studio — 
 
 ### Migrations
 
+The Studio API applies and tracks plugin migrations itself at startup, so these run automatically — a new one takes effect on the next API start. Run them by hand only if you set `PLUGIN_MIGRATIONS=off` because a deploy step applies them; see [Installation](/installation) for details.
+
 ```bash
 psql -U postgres -d roadbeat_studio -f plugins/pro-notifications/migrations/001_create_notification_tables.sql
 psql -U postgres -d roadbeat_studio -f plugins/pro-notifications/migrations/002_add_data_transfer_ack.sql

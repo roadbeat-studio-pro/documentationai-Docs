@@ -26,6 +26,8 @@ The **Video Processing** plugin adds professional video management to Studio's A
 
 ### Migrations
 
+The Studio API applies and tracks plugin migrations itself at startup, so these run automatically — a new one takes effect on the next API start. Run them by hand only if you set `PLUGIN_MIGRATIONS=off` because a deploy step applies them; see [Installation](/installation) for details.
+
 ```bash
 psql -U postgres -d roadbeat_studio -f plugins/pro-media/migrations/001_create_video_tables.sql
 psql -U postgres -d roadbeat_studio -f plugins/pro-media/migrations/002_worker_lifecycle.sql
@@ -88,9 +90,19 @@ POST /api/v1/pro/media/profiles
 
 ## For Editors: Working with Video
 
+### Choosing a Video
+
+Wherever the Video Processing screens need a video — the job form, the **Captions** tab, and the job list's video filter — you pick it with a search box instead of typing an asset id:
+
+- Start typing a **file name**; the box lists matching videos from the Asset Library with their type and size (up to 12 at a time).
+- Use the arrow keys and **Enter**, or click, to choose; **Esc** closes the list, and **×** clears the choice. The box is a standard accessible combobox, so screen readers announce the options.
+- Pasting an asset UUID and pressing **Enter** still works.
+
+The job list shows each job's video by its file name rather than its UUID.
+
 ### Creating a Job
 
-After uploading a video to the Asset Library, create a job to process it:
+After uploading a video to the Asset Library, create a job for it in the UI, or through the API:
 
 ```bash
 POST /api/v1/pro/media/jobs
@@ -155,7 +167,7 @@ The jobs list shows an **attempt counter** against the ceiling. Once a job has u
 
 ### Captions
 
-Open the **Captions** tab in Video Processing, enter a video asset id, and manage its tracks.
+Open the **Captions** tab in Video Processing, choose the video by its file name, and manage its tracks.
 
 <Steps>
   <Step title="Pick the language">

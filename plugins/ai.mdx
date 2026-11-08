@@ -26,6 +26,8 @@ It unifies self-hosted models (Augmentor / Ollama), EU cloud (Mistral, Azure Ope
 - **In-editor assistance** — a sidebar assistant and per-field ✨ actions, every suggestion shown as an accept/reject diff
 - **Shared backbone** — sibling Pro plugins (e.g. the Studio Agent) consume the same gateway via the `AI_SERVICE` contract; capabilities are also exposed as **MCP tools**
 - **Full audit trail** — every call is metered and logged (privacy-preserving hashes by default)
+- **SSRF-safe media sources** — image and audio URLs for vision and transcription are fetched under a guard and handed to the provider as data, never as a URL
+- **Coded, translated errors** — every failure carries a stable `code` and `params`; a failing provider is a `502` that names it, not an opaque `500`. See [API Error Codes](/help-center/troubleshooting/error-codes)
 
 ## Architecture
 
@@ -83,6 +85,26 @@ List actions (`headline`, `social`) also return parsed `suggestions` so the edit
   "valid": true
 }
 ```
+
+### Image and audio sources
+
+`vision` accepts `imageUrl` or `imageBase64`; `transcribe` accepts `audioUrl` or `audioBase64`. A URL is **never** passed on (SSRF guard): after routing has picked a capable provider, the gateway loads the file itself and hands it to the adapter as a base64 data URI. Neither Studio's adapters nor the provider — including a self-hosted one inside your network — ever fetches a user-supplied URL.
+
+How a source URL is loaded:
+
+| Source | Rule | Error |
+|---|---|---|
+| URL of **this Studio's own storage** | Read directly from storage, and only if the asset belongs to the caller's organization and is not deleted — no cross-tenant reads by URL | `404 ASSET_NOT_FOUND` |
+| Any other URL — scheme | `http` or `https` only, no `user:password@` credentials | `400 AI_REQUEST_INVALID` |
+| Any other URL — address | **Every** DNS answer must be a public address. Blocked: `0.0.0.0/8`, `10/8`, `127/8`, `100.64/10` (CGNAT), `169.254/16` (link-local, incl. the cloud metadata endpoint), `172.16/12`, `192.168/16`, `224.0.0.0` and above (multicast/reserved), `::`, `::1`, `fc00::/7` (ULA), `fe80::/10`; IPv4-mapped IPv6 addresses are checked as IPv4 | `400 AI_SOURCE_URL_BLOCKED` `{ hostname }` |
+| Any other URL — reachability | Host must resolve and answer within **15 seconds** | `400 AI_SOURCE_UNREACHABLE` `{ hostname }` |
+| Redirects | Followed manually, at most **3**, and every hop is checked again | `400 AI_REQUEST_INVALID` (too many) |
+| HTTP status | The final response must be `2xx` | `502 AI_SOURCE_FETCH_FAILED` `{ kind, status }` |
+| Size | Images at most **20 MB**, audio at most **25 MB** (also for files from own storage) | `400 AI_SOURCE_TOO_LARGE` `{ kind, maxMb }` |
+
+<Callout kind="tip">
+  An image on an intranet host is refused with `AI_SOURCE_URL_BLOCKED`. Upload it to the Studio media library (its URL is read from storage directly) or send it as `imageBase64`. The guard applies to **source URLs in requests only** — provider base URLs such as a local Augmentor on `host.docker.internal` are unaffected.
+</Callout>
 
 ## For Admins: Configuration
 
@@ -166,7 +188,7 @@ Privacy, consent, redaction, budgets, and the audit trail are documented in deta
 
 ## For Editors
 
-When `pro-ai` is active, editors get an **AI Assistant** sidebar and per-field **✨ actions** directly in the content editor — quick actions (including a local **Safety check**, **Suggest tags**, and **Draft teaser**), chat, one-click translation, and alt-text suggestions, each shown as an accept/reject diff so nothing is ever applied silently. Every result carries a **provenance badge** (Local — no egress / EU cloud / Non-EU cloud, with redaction and fallback markers), the sidebar warns about **possible duplicates** of the open item, and the first use of a non-EU provider is blocked behind an inline, logged **consent dialog**.
+When `pro-ai` is active, editors get an **AI Assistant** sidebar and per-field **✨ actions** directly in the content editor — quick actions (including a local **Safety check**, **Suggest tags**, and **Draft teaser**), chat, one-click translation, and alt-text suggestions, each shown as an accept/reject diff so nothing is ever applied silently. Every result carries a **provenance badge** (Local — no egress / EU cloud / Non-EU cloud, with redaction and fallback markers), the sidebar warns about **possible duplicates** of the open item, and the first use of a non-EU provider is blocked behind an inline, logged **consent dialog**. When something fails — in a quick action, a field action, or mid-chat — the panel says what happened in the interface language (for example which provider returned an error, that consent is needed, or that a budget is used up) instead of showing a raw API message.
 
 <Card title="Using AI in the editor" href="https://studio-docs.roadbeat.net/guides/ai-assistant" icon="sparkles" cta="Open the editor guide" horizontal="true">
   The full editor-facing walkthrough lives in the Studio documentation.
@@ -182,7 +204,9 @@ When `pro-ai` is active, editors get an **AI Assistant** sidebar and per-field *
 | Non-EU cloud providers (OpenAI / Anthropic / Gemini)                                                               | **Business** | `ai_cloud_providers_enabled` |
 | Advanced governance (custom redaction rules, zero-retention overrides, raw-log retention controls)                 | **Business** | `ai_advanced_governance`     |
 
-Two numeric license limits cap org usage **on top of** admin-configured budgets, enforced in the pre-call gate (HTTP 429 on breach):
+Without the entitlement, a Business capability answers `403 AI_FEATURE_NOT_LICENSED` with `params: { feature, tier }`.
+
+Two numeric license limits cap org usage **on top of** admin-configured budgets, enforced in the pre-call gate (`429 AI_LICENSE_LIMIT_EXCEEDED` with `params: { kind, period, limit }` on breach):
 
 | Limit                   | Effect                            |
 | ----------------------- | --------------------------------- |
@@ -190,7 +214,7 @@ Two numeric license limits cap org usage **on top of** admin-configured budgets,
 | `max_ai_cost_per_month` | Hard monthly org cost ceiling (€) |
 
 <Callout kind="info" collapsed="false">
-  Non-EU providers are gated at **routing** time: without `ai_cloud_providers_enabled`, EU/local providers still route normally, and a call is only refused when its _only_ eligible providers are non-EU. See [Licensing](/licensing) for tiers and offline validation.
+  Non-EU providers are gated at **routing** time: without `ai_cloud_providers_enabled`, EU/local providers still route normally, and a call is only refused — `403 AI_CLOUD_PROVIDERS_NOT_LICENSED` with `params.providerTypes` — when its _only_ eligible providers are non-EU. See [Licensing](/licensing) for tiers and offline validation.
 </Callout>
 
 ## Using the Gateway from Other Plugins
@@ -202,6 +226,37 @@ The same capabilities are exposed as **MCP tools** (`GET /api/v1/pro/ai/mcp/tool
 <Callout kind="tip" collapsed="false">
   When `pro-ai` is **not** installed, dependent features degrade gracefully — AI surfaces are hidden and CE auto-translate falls back to its configured machine-translation provider.
 </Callout>
+
+## Errors and Failure Handling
+
+Every error from the gateway uses Studio's standard error body with a stable `code` and the values of its message in `params` — the AI screens translate it into the UI language, and API clients can switch on `code` instead of parsing English text. The full contract and every code are listed in [API Error Codes](/help-center/troubleshooting/error-codes#ai-provider-gateway).
+
+| Situation | Status | Code | `params` |
+|---|---|---|---|
+| The provider answered with an HTTP error | `502` | `AI_PROVIDER_FAILED` | `provider`, `status` |
+| The provider host could not be reached or timed out | `502` | `AI_PROVIDER_UNREACHABLE` | `provider` |
+| No configured provider satisfies the residency mode | `503` | `AI_NO_PROVIDER` | `mode`, `task` |
+| Eligible providers exist, but none is healthy (or none supports the capability) | `503` | `AI_NO_HEALTHY_PROVIDER` | `task` |
+| Non-EU provider without consent / without zero-retention under `eu_only` | `403` | `AI_CONSENT_REQUIRED` / `AI_RETENTION_REQUIRED` | `providerTypes`, `providers` |
+| Rate limit, budget, license ceiling, velocity guard | `429` | `AI_RATE_LIMITED`, `AI_BUDGET_EXCEEDED`, `AI_LICENSE_LIMIT_EXCEEDED`, `AI_VELOCITY_CEILING`, `AI_VELOCITY_ANOMALY` | the limit that fired |
+| Malformed request, or the routed provider lacks the capability | `400` | `AI_REQUEST_INVALID`, `AI_PROVIDER_NO_VISION`, `AI_PROVIDER_NO_TRANSCRIPTION`, `AI_PROVIDER_NO_EMBEDDINGS` | — |
+| Provider, prompt or job id unknown **or malformed** | `404` | `AI_PROVIDER_NOT_FOUND`, `AI_PROMPT_NOT_FOUND`, `AI_JOB_NOT_FOUND` | — |
+| A provider with that name already exists in the scope | `409` | `AI_PROVIDER_EXISTS` | `name` |
+
+<Callout kind="info">
+  The provider's own error response is written to the server log only (first 500 characters) and never returned to the client, because it can echo request content. A provider failure still counts toward that provider's circuit breaker and is metered as a failed call.
+</Callout>
+
+### Errors in the chat stream
+
+`POST /chat` answers with Server-Sent Events, so its HTTP status is already `200` when a failure happens — including pre-call refusals such as a missing consent or an exhausted budget. The failure arrives as an `error` event with the same `code` / `message` / `params` as a JSON error, and the stream then closes:
+
+```text
+event: error
+data: {"code":"AI_CONSENT_REQUIRED","message":"Consent required before using non-EU AI provider(s): openai","params":{"providerTypes":["openai"],"providers":"openai"}}
+```
+
+An error without a code is logged on the server and sent as `{"code":"INTERNAL_ERROR","message":"Internal server error"}` — the raw error text never reaches the client. Request-body validation and authentication still fail before the stream starts, with a normal JSON error.
 
 ## API Reference
 

@@ -1,0 +1,60 @@
+---
+title: Accessibility
+description: How the Studio Pro plugin interfaces support keyboard and screen-reader users, meet WCAG 2.1 AA contrast, and how this is tested.
+---
+
+## Overview
+
+The Studio Pro plugin UIs are built to the same accessibility bar as Studio core: **WCAG 2.1 Level A and AA**. This matters for teams covered by the European Accessibility Act and EN 301 549, and for any editor who works with a keyboard, a screen reader, or high zoom.
+
+<Callout kind="info">
+  This page describes design rules and automated checks. It is not a formal conformance statement. If you need an accessibility statement for procurement, test your own deployment, with your theme, against your requirements.
+</Callout>
+
+## What you can rely on
+
+### Every control has a name
+
+- Every input, select and textarea in all plugin frontends has an accessible name — its visible label, or an explicit label where the field has none (filter bars, inline editors).
+- Icon-only buttons (remove, move up/down, back, toggles) are named after what they do.
+- Permission-matrix checkboxes in [Advanced Roles](/plugins/advanced-roles) read as "*resource*: *action*" (for example "Assets: delete"), not as an unlabeled grid.
+- Filter dropdowns are named after what they filter ("Action", "Status", "Data residency"), not after their first option ("All actions").
+
+### Pickers instead of IDs
+
+The forms that used to ask for a raw UUID or internal ID — in Import, Export, Preview Links, Releases, Content Permissions, the Layout Builder, Audit, Webhook Delivery and Video Processing — now offer lists of your content, content types, users, locales, webhooks and videos, with search where the list can be long. Search pickers such as the video picker in [Video Processing](/plugins/media) follow the WAI-ARIA combobox pattern: arrow keys move through the results, **Enter** selects, **Escape** closes. Pasting a UUID and pressing **Enter** still works for power users.
+
+### Contrast in light and dark mode
+
+- White text sits only on button colors that reach **4.5:1**. Buttons that fell short (Tasks, Releases, the AI assistant and others) moved to the next darker shade that passes.
+- **Workflow state badges** use a state color you choose, which can be any hue. The badge text is that color mixed 45 % with the theme's ink color (`--rb-badge-ink`), so it stays at 4.5:1 or above on the badge background in both light and dark mode.
+- Custom themes are checked too: [White-Labeling](/plugins/whitelabel) shows each theme's contrast report, warns below 4.5:1 and blocks activation below 3:1.
+
+### Status is never color alone
+
+Job, release, task and export statuses are text badges ("Failed", "Scheduled", "In progress") translated into the UI language. Color only reinforces the text.
+
+## How it is tested
+
+<Steps>
+  <Step title="Static source checks" icon="scan-search">
+    Two checks scan the templates of all plugin frontends: one lists every form control without an accessible name, the other every white-on-color combination below 4.5:1. Either finding fails the check.
+  </Step>
+  <Step title="axe-core in the end-to-end suite" icon="check-circle">
+    Studio's Playwright suite runs [axe-core](https://github.com/dequelabs/axe-core) with the WCAG 2.1 A and AA rule sets against the Pro screens — Workflows, the workflow builder, Tasks, Releases, Scheduling, Activity, Import, Export, API Explorer, Saved Views, Video Processing, Webhooks, AI, Content Locks and the Layout Builder — and expects zero violations. Tasks is also checked in dark mode.
+  </Step>
+  <Step title="Interaction checks" icon="keyboard">
+    For the Studio shell the plugins render in, the same suite checks what axe cannot judge: keyboard navigation of tab lists (arrow keys, **Home**/**End**, one tab stop), error toasts announced as alerts through a live region, and modal dialogs that are labelled and close with **Escape**.
+  </Step>
+</Steps>
+
+## Related
+
+<Columns cols={2}>
+  <Card title="Languages" icon="languages" href="/languages">
+    24 EU languages with correct plural forms, formal address and translated error messages.
+  </Card>
+  <Card title="White-Labeling" icon="palette" href="/plugins/whitelabel">
+    Contrast-gated themes and per-organization accessibility settings.
+  </Card>
+</Columns>

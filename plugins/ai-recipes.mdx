@@ -364,21 +364,35 @@ AI_EVAL=1 AI_E2E_AUGMENTOR_URL=http://your-augmentor-host:3800/v1 npx jest eval-
 
 ## Troubleshooting
 
+Every AI error carries a stable `code` — start from it. The complete list is in [API Error Codes](/help-center/troubleshooting/error-codes#ai-provider-gateway).
+
 <ExpandableGroup>
-  <Expandable title="“no provider satisfies residency …” on every AI action" default-open="false">
-    The residency mode excludes all configured providers — e.g. `AI_RESIDENCY_MODE=local_only` with only cloud providers configured. Add a `self_hosted` provider or widen the mode/task residency. The egress-posture card shows exactly which providers are blocked and why.
+  <Expandable title="503 AI_NO_PROVIDER — “no provider satisfies residency …” on every AI action" default-open="false">
+    The residency mode excludes all configured providers — e.g. `AI_RESIDENCY_MODE=local_only` with only cloud providers configured. `params.mode` and `params.task` name the mode and the task that found no provider. Add a `self_hosted` provider or widen the mode/task residency. The egress-posture card shows exactly which providers are blocked and why.
+  </Expandable>
+
+  <Expandable title="503 AI_NO_HEALTHY_PROVIDER" default-open="false">
+    Providers are eligible, but none of them passed its health check, their circuit breakers are open, or none supports the capability the task needs (for example no `vision` model is registered). Click **Test** on each provider, check the circuit-breaker events, and make sure a model with the needed capability is registered on a reachable provider.
+  </Expandable>
+
+  <Expandable title="502 AI_PROVIDER_FAILED or AI_PROVIDER_UNREACHABLE" default-open="false">
+    Routing worked, but the provider itself failed: `AI_PROVIDER_FAILED` means it answered with an HTTP error (`params.status` — e.g. `401` for a wrong API key, `404` for a wrong model or deployment name, `429` for the vendor's own rate limit); `AI_PROVIDER_UNREACHABLE` means the host could not be reached or timed out. `params.provider` names the provider. The provider's response body is not sent to the client — look for the `AiGateway` warning in the Studio API log, which carries the first 500 characters of it.
   </Expandable>
 
   <Expandable title="403 with code AI_CONSENT_REQUIRED" default-open="false">
-    A non-EU provider would serve the request but the organization hasn't consented yet. Editors get an inline consent dialog; admins can pre-grant via `POST /api/v1/pro/ai/consents` (`{ "providerType": "openai" }`) or revoke with `DELETE /api/v1/pro/ai/consents/openai`.
+    A non-EU provider would serve the request but the organization hasn't consented yet (`params.providerTypes` lists which). Editors get an inline consent dialog; admins can pre-grant via `POST /api/v1/pro/ai/consents` (`{ "providerType": "openai" }`) or revoke with `DELETE /api/v1/pro/ai/consents/openai`.
   </Expandable>
 
-  <Expandable title="403 mentioning zero-retention in eu_only mode" default-open="false">
+  <Expandable title="403 AI_RETENTION_REQUIRED in eu_only mode" default-open="false">
     In `eu_only`, cloud providers must carry the **No retention** flag or an admin-recorded override (Business `ai_advanced_governance`). Either enable the flag (if your provider contract guarantees it), record the override, or route the task to the local provider.
   </Expandable>
 
   <Expandable title="429 responses — which limit did I hit?" default-open="false">
-    The error `code` tells you: `AI_RATE_LIMITED` (per-user requests/minute), `AI_BUDGET_EXCEEDED` (org/user token or cost budget), a license-limit error (`max_ai_tokens_per_day` / `max_ai_cost_per_month`), `AI_VELOCITY_CEILING` (an automation caller burned its short-window token ceiling — usually a stuck loop, not a config problem), or `AI_VELOCITY_ANOMALY` (org-wide spend burst with `AI_VELOCITY_ENFORCE=hard`). Each also increments `ai_budget_blocks_total{reason}`.
+    The error `code` tells you: `AI_RATE_LIMITED` (per-user requests/minute), `AI_BUDGET_EXCEEDED` (org/user token or cost budget), `AI_LICENSE_LIMIT_EXCEEDED` (`max_ai_tokens_per_day` / `max_ai_cost_per_month`), `AI_VELOCITY_CEILING` (an automation caller burned its short-window token ceiling — usually a stuck loop, not a config problem), or `AI_VELOCITY_ANOMALY` (org-wide spend burst with `AI_VELOCITY_ENFORCE=hard`). `params` carries the limit that fired. Each also increments `ai_budget_blocks_total{reason}`.
+  </Expandable>
+
+  <Expandable title="Vision or transcription: 400 AI_SOURCE_URL_BLOCKED / AI_SOURCE_UNREACHABLE" default-open="false">
+    Image and audio URLs are loaded by Studio under an SSRF guard before any provider sees them: only public `http(s)` addresses, every redirect re-checked, 15-second timeout, 20 MB (image) / 25 MB (audio) — see [Image and audio sources](/plugins/ai#image-and-audio-sources). Files on an intranet host are blocked by design: upload them to the Studio media library or send `imageBase64` / `audioBase64` instead. A `502 AI_SOURCE_FETCH_FAILED` means the URL answered with a non-2xx status (`params.status`).
   </Expandable>
 
   <Expandable title="Provider test shows offline but curl works" default-open="false">
