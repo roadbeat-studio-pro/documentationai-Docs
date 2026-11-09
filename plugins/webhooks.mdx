@@ -22,7 +22,7 @@ The **Advanced Webhooks** plugin extends CE's basic webhook system with enterpri
 
 ### Migrations
 
-The migrations ship in `plugins/pro-webhooks/migrations/` (`001_create_webhook_retry_tables.sql`, `002_create_incoming_webhook_tables.sql`, `003_add_dlq_alert_debounce.sql`) and are applied by Studio at startup — see [Installation](/installation#database-migrations).
+The migrations ship in `plugins/pro-webhooks/migrations/` (`001_create_webhook_retry_tables.sql`, `002_create_incoming_webhook_tables.sql`, `003_add_dlq_alert_debounce.sql`, `004_incoming_webhook_actor.sql`) and are applied by Studio at startup — see [Installation](/installation#database-migrations).
 
 Tables created: `pro_webhook_retry_configs`, `pro_webhook_delivery_log` (deliveries, retries, and the dead letter queue), `pro_incoming_webhooks`, `pro_incoming_webhook_logs`
 
@@ -120,19 +120,45 @@ Create endpoints that external systems call to push data into Studio:
 ```bash
 POST /api/v1/pro/incoming-webhooks
 {
-  "name": "GitHub Deployment",
-  "slug": "github-deploy",
-  "description": "Triggered on successful deployment",
+  "name": "Press releases from the newsroom",
+  "slug": "newsroom",
+  "description": "Creates a news draft per press release",
   "action_type": "create_content",
   "config": {
-    "contentTypeId": "7f3c2a10-5b8e-4c1d-9a6f-2e4b8c0d1f3a",
-    "fieldMappings": { "title": "deployment.environment" }
+    "contentTypeId": "news",
+    "fieldMappings": { "headline.en": "release.title", "article_body.en": "release.text", "slug": "release.id" }
   },
   "is_active": true
 }
 ```
 
-`action_type` is one of `create_content`, `update_content`, `trigger_workflow`, or `custom`. For `create_content`, `config.contentTypeId` is the **UUID** of the target content type (not its slug), and `fieldMappings` maps each content field (key) to a dot-path in the incoming payload (value, `items[0]` indexes allowed); a `slug` key sets the slug. The item is created as a draft.
+Content is written through Studio's own content service, so every incoming item is validated against its content type, gets a version, fires the usual events (search index, a workflow bound to the type starts automatically) and is stored in the content type's storage shape.
+
+| `action_type` | What a delivery does | Result |
+|---------------|----------------------|--------|
+| `create_content` | Creates a **draft** of `config.contentTypeId` | `{ action, contentId, slug, status: "draft" }` |
+| `update_content` | Updates the item whose id is at `config.contentIdPath` (default `id`) in the payload; only the mapped fields change | `{ action, contentId, version }` |
+| `custom` | Verifies and logs the delivery; nothing else runs — read it from the execution log | `{ action: "custom", acknowledged: true }` |
+| `trigger_workflow` | **Not available** — see below | `422 INCOMING_WEBHOOK_ACTION_UNSUPPORTED` |
+
+**Config fields:**
+
+- **`contentTypeId`** — the content type's id within your organization, as listed by `GET /api/v1/manage/content-types` (for example `news`), not a UUID or display name. It is checked when you save the webhook: missing is `400 INCOMING_WEBHOOK_NO_CONTENT_TYPE`; unknown, abstract or disabled types are `400 INCOMING_WEBHOOK_CONTENT_TYPE_UNKNOWN` / `_ABSTRACT` / `_DISABLED`. On `update_content` it is optional and restricts updates to that type.
+- **`fieldMappings`** — `{ "<target path>": "<payload path>" }`. Target paths are content fields; dots create nested fields (`headline.en`, `seo.meta_title`), and Schema Registry form ids are mapped to the type's storage paths. Payload paths may index arrays (`items[0].title`). Values missing from the payload are skipped. A `slug` target sets the slug (normalized); without it Studio generates a unique one.
+- **`contentIdPath`** (`update_content`) — where the content id sits in the payload. The id must belong to the webhook's own organization: unknown ids, ids of another organization or another type, and malformed ids all answer the same `404 CONTENT_NOT_FOUND`.
+- **`locale`** — optional locale of created items.
+
+A malformed config is `400 INCOMING_WEBHOOK_CONFIG_INVALID` with `params.field` naming the field.
+
+**Who the changes are attributed to:** the admin who created the webhook (`created_by_id`), as long as they are still an active admin or editor — otherwise the organization's longest-standing active admin. Webhooks created before this field existed get the admin who next saves them. If no such user exists, deliveries answer `422 INCOMING_WEBHOOK_NO_ACTOR`.
+
+<Callout kind="alert">
+  **`trigger_workflow` is not available.** Workflows start when content of a bound type is created — there is no way to start one on request yet. Webhooks of this type can no longer be created or activated (`400 INCOMING_WEBHOOK_ACTION_UNSUPPORTED`); existing ones can be deactivated, switched to another action or deleted, and their deliveries are answered with `422` and logged as errors. Until 2026-11-09 such deliveries reported `status: "queued"` without doing anything. To start a workflow from outside, use `create_content` with a type the workflow is bound to.
+</Callout>
+
+<Callout kind="info">
+  Incoming content actions need a Studio CE whose content service sets the organization context itself for requests without a signed-in user (the 2026-11-09 Studio update). On an older host, `create_content` and `update_content` deliveries answer `503 INCOMING_WEBHOOK_HOST_UNSUPPORTED` instead of writing anything. Before the 2026-11-09 plugin update both actions failed on every delivery.
+</Callout>
 
 External systems send data to:
 

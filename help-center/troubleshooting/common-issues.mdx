@@ -123,6 +123,16 @@ description: Solutions for common Studio Pro plugin installation, licensing, and
   Current builds answer a malformed id with `404` and code `NOT_FOUND` instead of a `500`.
 </Expandable>
 
+<Expandable title="SCIM provisioning from Entra ID or Okta fails or creates nothing" default-open="false">
+  Entra ID and Okta send SCIM requests as `application/scim+json`. Plugin builds before **2026-11-09** did not parse that content type, so create, replace and patch requests arrived empty and failed validation. Their error bodies were also not SCIM documents, so the IdP showed `Http Exception` instead of the reason. Update `pro-sso`.
+
+  Also check the token: it is shown only once. If you enabled SCIM by saving the SSO configuration before 2026-11-09, no usable token was ever shown — click **Regenerate** on the SSO page and enter the new token in your IdP. See [SSO Integration](/plugins/sso).
+</Expandable>
+
+<Expandable title="Incoming webhook answers 503 INCOMING_WEBHOOK_HOST_UNSUPPORTED" default-open="false">
+  `create_content` and `update_content` write through Studio's content service, which on Studio CE builds before **2026-11-09** only works inside a signed-in request. The public webhook endpoint has none, so the plugin refuses instead of writing unvalidated data. Update Studio CE. Before the 2026-11-09 plugin update, these actions failed on every delivery with a `500`. See [Advanced Webhooks](/plugins/webhooks).
+</Expandable>
+
 <Expandable title="An error message shows a code such as AI_PROVIDER_FAILED" default-open="false">
   Every Pro API error carries a stable `code` and its `params`. The plugin UIs translate the code into your interface language; API clients can switch on it. See [API Error Codes](/help-center/troubleshooting/error-codes) for what each code means and what to do about it.
 </Expandable>
@@ -146,11 +156,11 @@ description: Solutions for common Studio Pro plugin installation, licensing, and
 ## Performance
 
 <Expandable title="Audit log table growing too large" default-open="false">
-  Configure retention policies and enforce them:
+  Configure retention policies — enabled policies are enforced automatically once a day:
 
   1. Go to **Audit Log** → **Retention** tab
   2. Create a policy (e.g., delete info-level entries after 90 days)
-  3. Click **Enforce Now** to delete everything older than the policy allows
+  3. Optionally click **Enforce Now** to delete everything older than the policy allows right away
 
   Or via API:
   ```bash
@@ -160,7 +170,7 @@ description: Solutions for common Studio Pro plugin installation, licensing, and
   POST /api/v1/pro/audit/retention/enforce
   ```
 
-  Retention is **not** applied on a schedule — logs outlive their policy until it is enforced. Call the enforce endpoint from a daily scheduled job if you need regular cleanup. Plugin builds before **2026-11-06** failed the enforcement query outright, so no retention deletion ran before that update. See [Audit Logging](/plugins/audit).
+  If the table still grows, check that the schedule is on (`AUDIT_RETENTION_ENFORCE_ENABLED` is not `false`) and look for the `Scheduled audit retention` summary line in the API log. Plugin builds before **2026-11-09** applied retention only on **Enforce Now**, and before **2026-11-06** the enforcement query failed outright, so older installs may hold logs past their policy until the first scheduled run. See [Audit Logging](/plugins/audit#scheduled-enforcement).
 </Expandable>
 
 <Expandable title="Scheduled actions not executing" default-open="false">

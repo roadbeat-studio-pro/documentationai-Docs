@@ -60,7 +60,7 @@ Tick **Assigned to me** to see only the open tasks (To do and In progress) assig
 
 | Situation | Result |
 |-----------|--------|
-| A **viewer** creates, edits, moves or deletes a task | `403` (`TASK_VIEWER_READONLY`) — viewers can read tasks |
+| A **viewer** creates, edits, moves, completes, cancels, assigns or deletes a task | `403` (`TASK_VIEWER_READONLY`) — viewers can read tasks |
 | Assignee or linked content belongs to another organization (or does not exist) | `404` (`USER_NOT_FOUND` / `CONTENT_NOT_FOUND`) |
 | Deleting a **workflow** task | `409` (`TASK_DELETE_WORKFLOW`) — cancel it instead |
 | Changing the linked content of a **workflow** task | `409` (`TASK_CONTENT_FIXED`) — its content comes from the workflow |

@@ -68,7 +68,9 @@ The plugin also provides the organization's [Tasks & Task Board](/plugins/tasks)
     ```
 
     - **`isFinal` / `allowsPublish`** — the publish guard allows publishing from any final state or any state flagged `allowsPublish`, regardless of the state's name (`freigegeben` works just as well as `approved`).
-    - **`taskRules`** — tasks created automatically when an instance *enters* this state. `assigneeRole` (`admin`, `editor` or `viewer`) assigns to the active org member with that role who carries the fewest pending tasks; without it, the instance assignee is used. `dueInHours` sets the SLA. Pending tasks of the exited state are cancelled on transition. The form edits one task rule per state; use the API for several.
+    - **`taskRules`** — tasks created automatically when an instance *enters* this state. `assigneeRole` (`admin`, `editor` or `viewer`) assigns to the active org member with that role who carries the fewest pending tasks; without it, the instance assignee is used. `dueInHours` sets the SLA. Pending tasks of the exited state are cancelled on transition.
+
+    In the form, each state has a **Tasks on entering this state** section: **Add task** adds a rule with type, title, assignee role, due time in hours and an optional **Task description**; **Remove task** deletes one. A state can have several rules. Every rule needs a type — the form does not save until each one has one.
   </Step>
   <Step title="Define transitions">
     Configure which state changes are allowed and who can perform them:
@@ -93,10 +95,10 @@ The plugin also provides the organization's [Tasks & Task Board](/plugins/tasks)
 
 ### Four-Eyes Rule (`noSelfApproval`)
 
-Set `noSelfApproval: true` on a transition to require a second person: the user who **created the content item** cannot perform that transition, even if their role is allowed. The attempt is rejected with `403` and the error code `WORKFLOW_SELF_APPROVAL`; every other user with a permitted role can approve as usual. The rule is opt-in per transition, so you can apply it to *Approve* without blocking *Submit for Review*.
+Tick **Four-eyes rule** on a transition in the workflow form (or set `noSelfApproval: true` through the API) to require a second person: the user who **created the content item** cannot perform that transition, even if their role is allowed. The attempt is rejected with `403` and the error code `WORKFLOW_SELF_APPROVAL`; every other user with a permitted role can approve as usual. The rule is opt-in per transition, so you can apply it to *Approve* without blocking *Submit for Review*.
 
-<Callout kind="alert">
-  `noSelfApproval` is set through the API (`POST`/`PUT /api/v1/pro/workflows/definitions`) or a JSON import — the workflow form does not show it yet. Saving the workflow in the form afterwards sends the transitions without it, which **removes the rule**. Re-apply it via the API after editing the workflow in the form.
+<Callout kind="info">
+  The form keeps every state, transition and task-rule property it does not show itself, so saving a workflow in the form never drops settings made through the API or a JSON import.
 </Callout>
 
 ### Workflow Builder
@@ -210,7 +212,7 @@ All workflow endpoints are documented in the [Studio API Reference](https://docs
 | Endpoint | Description |
 |----------|-------------|
 | `GET /api/v1/pro/workflows/definitions` | List workflow definitions |
-| `POST /api/v1/pro/workflows/definitions` | Create a workflow (`contentTypeIds`, `states`, `transitions`) |
+| `POST /api/v1/pro/workflows/definitions` | Create a workflow (`contentTypeIds`, `states`, `transitions`). `contentTypeIds` are the content-type ids from `GET /api/v1/manage/content-types` (e.g. `news`), not display names; an empty list binds the workflow to nothing. On `PUT`, leaving the field out keeps the bindings. |
 | `PUT /api/v1/pro/workflows/definitions/:id` | Update a workflow (structural edits create a new version) |
 | `POST /api/v1/pro/workflows/definitions/seed` | Seed the "Editorial Review" workflow if the organization has none |
 | `POST /api/v1/pro/workflows/definitions/:id/migrate-instances` | Migrate in-flight instances to the current version |

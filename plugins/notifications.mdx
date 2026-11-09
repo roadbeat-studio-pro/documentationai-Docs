@@ -85,6 +85,28 @@ POST /api/v1/pro/notifications/housekeeping?days=30
   Generic webhook targets must be **public HTTPS endpoints** — internal/private addresses are rejected. For Slack, Teams, and Discord, tick the **EU data-transfer acknowledgement** when creating the channel; without it the channel cannot be enabled.
 </Callout>
 
+### Choosing Events for a Channel
+
+A channel receives every event unless you tick specific ones. These are all the events the plugin sends to channels:
+
+| Event | Label | Sent when |
+|-------|-------|-----------|
+| `content_published` | Content Published | Content is published |
+| `content_updated` | Content Updated | Content is updated |
+| `content_deleted` | Content Deleted | Content is deleted |
+| `comment_added` | Comment Added | A comment is added to content |
+| `task_assigned` | Task Assigned | A task is assigned to someone |
+| `workflow_transition` | Workflow Transition | Content moves to another workflow state |
+| `scheduling_action_failed` | Scheduled Action Failed | A scheduled publish, unpublish or archive failed after its retries |
+| `release_failed` | Release Failed | Items of a release could not be published |
+| `release_items_removed` | Release Item Removed | Content that belonged to a draft or scheduled release was deleted |
+
+Any other value in a channel's `events` list is rejected with `400 VALIDATION_FAILED`. Lock notices and task reminders/escalations are in-app only and never go to channels.
+
+<Callout kind="info">
+  Until **2026-11-09** the event picker offered only the first six events, so scheduling and release failures reached only channels without a filter. It also offered four values the plugin never sends; the form now drops them when you edit such a channel. A channel whose filter contained *only* those values receives every event once you save it again.
+</Callout>
+
 ## For Editors: Managing Notifications
 
 ### Viewing Notifications

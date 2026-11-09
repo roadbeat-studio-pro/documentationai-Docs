@@ -16,7 +16,7 @@ The **Audit Logging** plugin provides a comprehensive, append-only audit trail f
 - **Compliance reports** — generate GDPR, user-access, data-changes, permission-changes, and API-access reports
 - **Complete exports** — download **all** matching audit logs as JSON or CSV (no silent row cap); CSV cells are guarded against spreadsheet formula injection
 - **GDPR erasure support** — when a user is erased, their audit rows are pseudonymized in place with a server-keyed pseudonym and the chain is re-linked
-- **Retention policies** — per-category and per-severity rules (30–3,650 days), applied on demand
+- **Retention policies** — per-category and per-severity rules (30–3,650 days), applied daily and on demand
 - **Saved searches** — save and share filter combinations for repeated queries
 - **Analytics dashboard** — breakdowns by action, resource, severity, category, and top users
 - **Event-driven** — automatically captures content, user, and security lifecycle events
@@ -110,13 +110,22 @@ Configure how long audit logs are retained:
   <Step title="Create a policy">
     Define a retention period (30–3,650 days), an optional category filter, and an optional severity filter.
   </Step>
-  <Step title="Enforce the policies">
-    Click **Enforce Now** (or call `POST /api/v1/pro/audit/retention/enforce`) to delete every log older than its matching policy's retention period. The response lists how many entries each policy removed.
+  <Step title="Let the schedule apply them — or enforce now">
+    Enabled policies are applied automatically once a day (see below). To apply them immediately, click **Enforce Now** (or call `POST /api/v1/pro/audit/retention/enforce`); the response lists how many entries each policy removed.
   </Step>
 </Steps>
 
-<Callout kind="alert">
-  **Retention is not applied on a schedule.** Policies take effect only when they are enforced, so logs outlive their retention period until someone runs **Enforce Now** or calls the endpoint. If you must meet a deletion deadline, run the endpoint from a scheduled job (for example a daily cron calling the API with an admin token).
+#### Scheduled enforcement
+
+The API enforces the enabled policies of every organization on a schedule: the first run starts 5 minutes after the API starts, then one run per interval. A scheduled run takes exactly the same path as **Enforce Now** — same deletion, same checkpoint entry that keeps the hash chain verifiable — and its checkpoint carries `metadata.trigger: "schedule"`. An organization whose policies already ran within the interval (for example through **Enforce Now**) is skipped, and with several API nodes only one node enforces a given organization. A failure in one organization is logged and the run continues with the others; it is retried after a full interval. Each run logs one summary line (`Scheduled audit retention: … organization(s) enforced, … entries deleted …`).
+
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `AUDIT_RETENTION_ENFORCE_ENABLED` | `true` | `false` turns the schedule off; **Enforce Now** and the endpoint keep working |
+| `AUDIT_RETENTION_ENFORCE_INTERVAL_HOURS` | `24` | Hours between runs (minimum `1`; invalid values fall back to `24`) |
+
+<Callout kind="info">
+  Plugin builds before **2026-11-09** applied retention only when someone enforced it, and before **2026-11-06** the enforcement query failed outright. If your logs are older than your policies allow, the first scheduled run after the update removes them.
 </Callout>
 
 ### Compliance Reports

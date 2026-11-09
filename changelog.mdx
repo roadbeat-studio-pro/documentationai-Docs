@@ -2,6 +2,116 @@
 title: Changelog
 description: Release notes and updates for roadbeat Studio Pro plugins.
 ---
+<Update label="2026-11-09" description="Fixes found while documenting — SCIM with Entra ID and Okta, incoming webhooks, scheduled audit retention, AI source guard, workflow form" tags={["bugfix","security"]}>
+  ## Fixes Found While Documenting
+
+  Writing these docs meant checking every claim against the code. Where the
+  code fell short of what the docs promised, it was fixed rather than
+  documented around.
+
+  ### Security
+
+  - **AI source URLs: loopback written as IPv6 got through.** The URL parser
+    turns `http://[::ffff:127.0.0.1]/` into `::ffff:7f00:1`, which the guard
+    did not recognize as loopback. The guard now checks IPv4-mapped,
+    IPv4-compatible, NAT64 and 6to4 forms as the IPv4 address they carry, and
+    also blocks multicast, reserved, documentation, benchmarking, Teredo and
+    site-local ranges.
+  - **AI source URLs: DNS rebinding.** The address the connection actually
+    uses is checked again when it is resolved, so a name that answers
+    publicly to the check and privately to the connect cannot reach an
+    internal host. See [AI Provider Gateway](/plugins/ai).
+  - **SSO login-method probe** answers `429` with `Retry-After` beyond 30
+    requests per minute (it answered `401`). The limit is keyed on the address
+    the reverse proxy reports, not on an `X-Forwarded-For` value the client can
+    choose freely.
+
+  ### SSO
+
+  - **SCIM provisioning from Entra ID and Okta works end to end.** Both send
+    `Content-Type: application/scim+json`, which Studio did not parse, so
+    create, replace and patch requests arrived with an empty body. SCIM routes
+    now accept it on any Studio host (100 KB limit, UTF-8 JSON).
+  - **SCIM errors are RFC 7644 documents** — `schemas`, `status`, `scimType`
+    (`invalidFilter`, `uniqueness`, `invalidValue`, `invalidSyntax`) and
+    `detail`, as `application/scim+json`. Studio's global error handler used to
+    replace them with its own error body, so IdPs saw `Http Exception` instead
+    of the reason.
+  - **A usable SCIM token when you enable SCIM by saving the configuration.**
+    `PUT /pro/sso/config` stored only the token's hash, and the SSO page threw
+    away even the token from **Regenerate**, so no screen ever showed one. The
+    token is now returned once and shown with **Copy** and a reminder that it
+    cannot be shown again.
+
+  ### Incoming webhooks
+
+  - **`create_content` and `update_content` work.** Both failed on every
+    delivery: the insert named a column that does not exist and treated
+    content-type slugs as UUIDs, and the update compared text ids with UUIDs.
+    They now go through Studio's content service, so incoming items are
+    validated, versioned, indexed and start a bound workflow like any other.
+  - `config.contentTypeId` is the content type's id (a slug such as `news`)
+    and is checked when you save the webhook. `fieldMappings` targets can be
+    nested dot paths, like in Content Import.
+  - Changes are attributed to the admin who created the webhook (migration
+    `004_incoming_webhook_actor.sql`), falling back to the organization's
+    longest-standing active admin.
+  - **`trigger_workflow` no longer pretends.** It answered `status: "queued"`
+    without doing anything. Such webhooks can no longer be created or
+    activated, and deliveries to existing ones are refused with `422`. See
+    [Advanced Webhooks](/plugins/webhooks).
+
+  ### Workflows & tasks
+
+  - **Four-eyes toggle in the workflow form.** Each transition has a
+    **Four-eyes rule** checkbox. The form used to drop `noSelfApproval` on
+    every save.
+  - **Several task rules per state** in the form, each with an optional
+    description. The form also keeps every state, transition and task-rule
+    property it does not edit, so a save no longer drops settings made through
+    the API or a JSON import.
+  - Viewers get `403 TASK_VIEWER_READONLY` when they complete, cancel or
+    assign a task, like for every other task change.
+
+  ### Audit, scheduling & notifications
+
+  - **Audit retention runs on its own.** Enabled retention policies are now
+    enforced once a day (first run 5 minutes after start) through the same
+    path as **Enforce Now**, one node per organization when you run several
+    API nodes. Configure with `AUDIT_RETENTION_ENFORCE_ENABLED` and
+    `AUDIT_RETENTION_ENFORCE_INTERVAL_HOURS`. Before, policies only took effect
+    when someone enforced them. See [Audit Logging](/plugins/audit#scheduled-enforcement).
+  - **Release owners hear about removed items.** Deleting content that
+    belongs to a draft or scheduled release now notifies the release's owner,
+    in-app and on channels (`release_items_removed`), once the delete has
+    succeeded. Before, the event was sent, but nothing in Studio acted on it.
+  - **Channels can subscribe to scheduling and release events.** The channel
+    event picker offered only six events, so `scheduling_action_failed`,
+    `release_failed` and the new `release_items_removed` reached only channels
+    without a filter. All nine channel events are offered now, and the API
+    rejects values the plugin never sends.
+  - "Release failed" notifications use plural forms instead of "item(s)".
+
+  ### APIs
+
+  - **GraphQL Delivery API rate limit is a `429`** with a `Retry-After`
+    header, like the Studio-side GraphQL API. It answered `400` before, so
+    clients and CDNs did not back off.
+
+  ### Notes for operators
+
+  - Incoming webhook content actions need the 2026-11-09 Studio CE update,
+    whose content service sets the organization context itself for requests
+    without a signed-in user. On an older host they answer
+    `503 INCOMING_WEBHOOK_HOST_UNSUPPORTED`.
+  - New migration: `pro-webhooks` `004_incoming_webhook_actor.sql`, applied at
+    API startup.
+  - Audit retention now deletes on a schedule. If your logs are older than
+    your policies allow, the first run after the update removes them. Set
+    `AUDIT_RETENTION_ENFORCE_ENABLED=false` beforehand if you want to review
+    your policies first.
+</Update>
+
 <Update label="2026-11-08" description="Error codes in every Pro API, AI hardening, accessibility and language quality across all plugin UIs" tags={["feature","security","bugfix"]}>
   ## Error Codes, AI Hardening, Accessibility & Languages
 
@@ -29,7 +139,7 @@ description: Release notes and updates for roadbeat Studio Pro plugins.
     - Any other URL must be public http(s): no credentials, no private,
       loopback, link-local or metadata addresses (every DNS answer and every
       redirect hop is checked), a 15-second timeout, and size caps of 20 MB for
-      images and 25 MB for audio.
+      images and 25 MB for audio. Hardened further on 2026-11-09.
     - Providers never receive a user-supplied URL; they get the file contents.
   - **A failing provider is a coded `502`**, not a bare `500`:
     `AI_PROVIDER_FAILED` with the provider and its HTTP status, or
@@ -59,11 +169,10 @@ description: Release notes and updates for roadbeat Studio Pro plugins.
     language, not fixed English/German fields. Every screen shows them in the
     UI language, falling back to English. See
     [Editorial Workflows](/plugins/workflows).
-  - **The four-eyes rule can be configured.** Transitions with
+  - **The API accepts the four-eyes rule.** Transitions with
     `noSelfApproval: true` stop content authors from approving their own work
-    (`403 WORKFLOW_SELF_APPROVAL`). The API rejected the property before. For
-    now it can only be set through the API or a JSON import, not in the
-    workflow form — and re-saving the workflow in the form removes it.
+    (`403 WORKFLOW_SELF_APPROVAL`). The API rejected the property before. The
+    workflow form gained its toggle on 2026-11-09.
 
   ### Content tools
 

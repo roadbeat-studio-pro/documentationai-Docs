@@ -61,7 +61,7 @@ The plugin emits these events on the Studio event bus. The [Notifications](/plug
 | `release.scheduled` | A release was scheduled |
 | `release.published` | A release was published — `userId` is `null` and `scheduled: true` when the scheduler published it |
 | `release.failed` | Items of a release failed (creator is notified) |
-| `release.items_removed` | Content about to be deleted is part of a draft or scheduled release (lists the affected releases) |
+| `release.items_removed` | Content that belonged to a draft or scheduled release was deleted (lists the affected releases with their owner; release owners are notified) |
 
 <Callout kind="info">
   Before the November 2026 update these events never left the plugin, so failure notifications described here were not delivered, and retry backoff and stale-claim recovery failed at the database level. Both work as documented since.
@@ -156,7 +156,7 @@ GET /api/v1/pro/releases/:id/validate
 
 Returns per-item readiness: the content exists in your organization, its workflow state allows publishing (when the Workflows plugin is active), and no conflicting pending action targets the same content. An **empty** release can never be scheduled or published; unready items block with `400` unless you pass `force=true` (in the schedule body or as `?force=true` on publish).
 
-Deleting content that is part of a draft or scheduled release emits a `release.items_removed` event (and a server-log warning) listing the affected releases, so integrations can alert release owners before the launch window. No built-in notification is sent for it.
+Deleting content that is part of a draft or scheduled release removes it from those releases, so their **owners are notified** (with the Notifications plugin) to review the release before it goes out — in-app as *Release "…" lost an item*, and on channels as the `release_items_removed` event. Whoever deleted the content is not notified about their own deletion. The notice is sent only after the delete succeeded; a delete that another plugin prevents notifies nobody. The `release.items_removed` event carries the affected releases and is available to integrations as well.
 
 ### Publishing a Release
 

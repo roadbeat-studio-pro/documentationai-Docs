@@ -168,20 +168,38 @@ POST /api/v1/pro/sso/config/regenerate-scim-token
 ```
 
 <Callout kind="info">
-  **SCIM tokens are hashed at rest and shown once.** Copy the token from the
-  response of the regenerate call (or from the create response when you enable
-  SCIM while creating the configuration) — it cannot be retrieved later; other
-  responses only show its first characters followed by a mask. Regenerating
-  invalidates the previous token immediately. Enabling SCIM through
-  `PUT /api/v1/pro/sso/config` stores a hash only, so call the regenerate
-  endpoint to obtain a usable token.
+  **SCIM tokens are hashed at rest and shown once.** A token is returned in
+  plaintext exactly once: by the regenerate call, or by the create or update
+  (`POST` / `PUT /api/v1/pro/sso/config`) that enables SCIM for a configuration
+  without a token yet — as `data.scim_token`, 64 hex characters. On the SSO page
+  the bearer-token field shows it after **Create**, **Save** or **Regenerate**,
+  with **Copy** and **Regenerate** buttons and a notice to copy it now. Every
+  later response only shows its first characters followed by a mask; re-enabling
+  SCIM keeps an existing token valid. Regenerating invalidates the previous token
+  immediately.
 </Callout>
 
 **Standards-conformant responses.** All nine `scim/v2/*` routes return the bare RFC 7644 documents your IdP expects — no Studio `{ "data": … }` wrapper — and `meta.created` / `meta.lastModified` carry real ISO 8601 timestamps. The surface implements the interop details large IdPs check during setup: `userName eq "…"` / `externalId eq "…"` filtering for the duplicate check, PATCH operations (including Microsoft Entra's path-less value-object form), the error statuses RFC 7644 prescribes, and the discovery endpoints (`ServiceProviderConfig`, `ResourceTypes`, `Schemas`).
 
-<Callout kind="alert">
-  **SCIM error bodies are not RFC 7644 documents yet.** The status codes are correct (`409` for an existing `userName`, `400` for an unsupported filter), but Studio's global error handler replaces the SCIM error body with its standard JSON error. The `schemas` and `detail` fields are lost, and `message` reads `Http Exception`. IdPs that decide on the status code work; an IdP that shows the SCIM `detail` to the admin shows nothing useful.
-</Callout>
+**SCIM errors** are RFC 7644 error documents too, sent as `application/scim+json` — never Studio's `{ code, message }` error body:
+
+```json
+{
+  "schemas": ["urn:ietf:params:scim:api:messages:2.0:Error"],
+  "status": "409",
+  "scimType": "uniqueness",
+  "detail": "User with userName jane@example.com already exists"
+}
+```
+
+| Case | Status | `scimType` | `detail` |
+|------|--------|------------|----------|
+| Unsupported filter | `400` | `invalidFilter` | `Unsupported filter: only userName/externalId eq "value" are supported` |
+| Other invalid input | `400` | `invalidValue` | The validation messages |
+| `userName` already exists | `409` | `uniqueness` | `User with userName … already exists` |
+| Unknown user id | `404` | — | `User … not found` |
+| Missing or unknown token | `401` | — | `Missing SCIM bearer token` / `Invalid SCIM token`, plus `WWW-Authenticate: Bearer realm="SCIM"` |
+| Server error | `5xx` | — | The status text only; details go to the server log |
 
 | Endpoint | Purpose |
 |----------|---------|
@@ -191,14 +209,20 @@ POST /api/v1/pro/sso/config/regenerate-scim-token
 | `PUT` / `PATCH /scim/v2/Users/:id` | Replace or patch a user (activate/deactivate, name, email) |
 | `DELETE /scim/v2/Users/:id` | Deactivate the user (`204`) |
 
-Paths are relative to the SCIM base URL above; every call needs `Authorization: Bearer <SCIM token>`.
+Paths are relative to the SCIM base URL above; every call needs `Authorization: Bearer <SCIM token>`. Request bodies may be sent as `application/scim+json` — what Entra ID and Okta send — or as `application/json`, on any Studio host. Bodies are limited like other API requests:
+
+| Request | Status | `scimType` | `detail` |
+|---------|--------|------------|----------|
+| Body larger than 100 KB | `413` | — | `The request body exceeds 100 KB` |
+| Invalid JSON, or neither an object nor an array | `400` | `invalidSyntax` | `The request body is not valid JSON` |
+| A charset other than UTF-8, or a `Content-Encoding` other than identity | `415` | — | — |
 
 ### Domain Enforcement
 
 When SSO is enforced (`enforceSso`) for the organization's `verifiedDomains`, users with a matching email address are sent to SSO login instead of the password form. Addresses on `bypassEmails` keep password login — use this for a break-glass admin account.
 
 ```bash
-# Login screen, before authentication (throttled to 30 requests/minute per IP)
+# Login screen, before authentication (30 requests/minute per client address)
 POST /api/v1/pro/sso/login-method
 { "organizationSlug": "acme", "email": "user@example.com" }
 # → { "data": { "method": "sso" } }   or   { "data": { "method": "password" } }
@@ -208,7 +232,11 @@ POST /api/v1/pro/sso/check-login-method
 { "email": "user@example.com" }
 ```
 
-The public probe answers `password` for unknown organization slugs, so it reveals nothing about which organizations or accounts exist.
+The public probe answers `password` for unknown organization slugs, so it reveals nothing about which organizations or accounts exist. The 31st request within a minute from one client address answers `429` with code `RATE_LIMITED` and a `Retry-After` header. Behind Studio's reverse proxy, the client address is the one the proxy appends to `X-Forwarded-For` (or sets as `X-Real-IP`); on a direct connection it is the socket address. Forwarding headers a client sends itself do not change its bucket.
+
+<Callout kind="info">
+  This assumes **one** reverse proxy in front of the API (for example Caddy), as in the standard deployment. With a second internal hop — a load balancer in front of the proxy — the rightmost forwarded address is the load balancer's, and all clients share one bucket.
+</Callout>
 
 ## For Editors: Logging In
 

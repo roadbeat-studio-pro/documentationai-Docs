@@ -230,7 +230,7 @@ The delivery endpoint answers in GraphQL's own shape. Because that body already 
 }
 ```
 
-When the GraphQL API is disabled for the organization, the response is `{ "data": { "errors": [ … ] } }` instead. A missing, invalid, revoked, or expired token is `401`; an unknown hash `404`.
+When the GraphQL API is disabled for the organization, the response is `{ "data": { "errors": [ … ] } }` instead. A missing, invalid, revoked, or expired token is `401`; an unknown hash `404`. Beyond the organization's `rate_limit_per_min` for a token the API answers `429` with code `RATE_LIMITED` and a `Retry-After` header (seconds until the minute window resets).
 
 ### Delivery guarantees
 
@@ -240,7 +240,7 @@ When the GraphQL API is disabled for the organization, the response is `{ "data"
 | Draft visibility | Published content only, unless the token carries the `read:draft` scope |
 | CORS | Restricted to the token's `allowedOrigins`, not wide open |
 | Limits | The organization's depth, complexity, and rate limits apply here too |
-| Rate limiting | Per token, plus a global throttle on the endpoint |
+| Rate limiting | Per token (`429 RATE_LIMITED` with `Retry-After`), plus a global throttle on the endpoint |
 
 <Callout kind="alert">
   Draft visibility is decided by the **token's scope**, not by the organization's `includeDraft` setting. A delivery token without `read:draft` never sees drafts, even when the Studio-side configuration includes them.

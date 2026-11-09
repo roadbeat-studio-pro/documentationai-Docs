@@ -198,7 +198,7 @@ For `ACTION_PREVENTED`, the API message is the specific veto reason and is shown
   </Expandable>
 
   <Expandable title="Protocol endpoints: codes without screen texts" default-open="false">
-    Endpoints that machines call — SAML and OIDC callbacks, SCIM 2.0 provisioning, inbound webhooks (`POST /api/v1/hooks-pro/:slug` and the incoming webhooks of Advanced Webhooks), and the GraphQL and GraphQL Delivery APIs — return codes too, but no Pro screen shows them, so they have no catalog text. Their English `message` is the explanation. SCIM endpoints answer with the statuses RFC 7644 prescribes (for example `409` for an existing `userName`, `400` for an unsupported filter), but in Studio's standard error body: the SCIM `detail` text is not passed on, and `message` reads `Http Exception`. See [SSO Integration](/plugins/sso).
+    Endpoints that machines call — SAML and OIDC callbacks, SCIM 2.0 provisioning, inbound webhooks (`POST /api/v1/hooks-pro/:slug` and the incoming webhooks of Advanced Webhooks), and the GraphQL and GraphQL Delivery APIs — return codes too, but no Pro screen shows them, so they have no catalog text. Their English `message` is the explanation. SCIM endpoints are the exception to the error body above: they answer with RFC 7644 error documents (`schemas`, `status`, `scimType`, `detail`, as `application/scim+json`) and carry no `code`. See [SSO Integration](/plugins/sso).
   </Expandable>
 </ExpandableGroup>
 
@@ -333,9 +333,7 @@ Codes that are not in a catalog are protocol or developer errors; their English 
 | `400` | `SSO_METADATA_URL_NOT_HTTPS` · `SSO_METADATA_URL_PRIVATE` · `SSO_METADATA_URL_UNRESOLVABLE` · `SSO_METADATA_FETCH_FAILED` · `SSO_METADATA_NO_CERTIFICATES` · `SSO_METADATA_TOO_LARGE` | The IdP metadata import failed | `status` for fetch failures |
 | `409` | `SSO_CONFIG_EXISTS` | The organization already has an SSO configuration | — |
 | `401` | `SAML_SIGNATURE_INVALID` · `SAML_VALIDATION_FAILED` · `SSO_STATE_INVALID` · `SSO_JIT_DISABLED` · `OIDC_TOKEN_EXCHANGE_FAILED` | SSO login callback refused | `status` for OIDC |
-| `401` | `RATE_LIMITED` | Too many SSO login probes from one IP address (30 per minute) | — |
-| `401` | `SCIM_TOKEN_MISSING` · `SCIM_TOKEN_INVALID` | SCIM request without a valid bearer token | — |
-| `409` | `SCIM_USER_EXISTS` | SCIM create for a `userName` that already exists | — |
+| `429` | `RATE_LIMITED` | Too many SSO login probes from one client address (30 per minute); `Retry-After` says when to try again | `limit`, `retryAfterSeconds` |
 | `400` | `AUDIT_FILTER_INVALID` · `AUDIT_REPORT_UNAVAILABLE` | Invalid audit query filter or report type | `name`, `allowed` / `type` |
 | `400` | `LOCK_ALREADY_HELD` | You already hold the lock | — |
 | `403` | `LOCK_FORCE_ADMIN_ONLY` · `LOCK_AUDIT_ADMIN_ONLY` | Force-unlock and lock history are admin-only | — |
@@ -360,9 +358,14 @@ Most common codes of the remaining plugins.
 | `400` | `THEME_CONTRAST_FAILED` · `THEME_CSS_REJECTED` | White-Labeling | The theme fails the WCAG contrast gate, or the custom CSS contains forbidden constructs | `count`, `pair` / `violations` |
 | `400` | `GRAPHQL_QUERY_TOO_DEEP` · `GRAPHQL_QUERY_TOO_COMPLEX` | GraphQL API | The query exceeds the depth or cost limit | `depth`, `maxDepth` / `totalCost`, `maxComplexity` |
 | `401` | `GRAPHQL_TOKEN_MISSING` · `GRAPHQL_TOKEN_INVALID` · `GRAPHQL_TOKEN_EXPIRED` · `GRAPHQL_TOKEN_REVOKED` | GraphQL API | Delivery-token problem on the public GraphQL endpoint | — |
-| `429` | `RATE_LIMITED` | GraphQL API, Preview API, White-Labeling | Too many requests (the GraphQL Delivery API answers this with `400`) | `limit` (GraphQL) |
+| `429` | `RATE_LIMITED` | GraphQL API and Delivery API, Preview API, White-Labeling | Too many requests; the GraphQL Delivery API also sends `Retry-After` | `limit` (GraphQL), `retryAfter` (Delivery API) |
 | `401` | `PREVIEW_TOKEN_MISSING` · `PREVIEW_TOKEN_INVALID` · `PREVIEW_LINK_INVALID` | Preview API | Missing or invalid preview token; invalid, expired, or exhausted shareable link, or a wrong link password (`PREVIEW_LINK_INVALID` can also be `404`) | — |
 | `401` | `INCOMING_WEBHOOK_SIGNATURE_INVALID` · `INCOMING_WEBHOOK_STALE` | Advanced Webhooks | Incoming webhook with a bad signature or an expired timestamp | — |
+| `400` | `INCOMING_WEBHOOK_NO_CONTENT_TYPE` · `INCOMING_WEBHOOK_CONTENT_TYPE_UNKNOWN` · `_ABSTRACT` · `_DISABLED` | Advanced Webhooks | Saving a `create_content` webhook without a usable content type (ids are slugs such as `news`) | `contentTypeId` |
+| `400` | `INCOMING_WEBHOOK_CONFIG_INVALID` | Advanced Webhooks | Malformed webhook config | `field` |
+| `400` / `422` | `INCOMING_WEBHOOK_ACTION_UNSUPPORTED` | Advanced Webhooks | `trigger_workflow` cannot be created or activated (`400`); deliveries to an existing one are refused (`422`) | — |
+| `422` | `INCOMING_WEBHOOK_NO_ACTOR` | Advanced Webhooks | No active admin or editor to attribute the change to | — |
+| `503` | `INCOMING_WEBHOOK_HOST_UNSUPPORTED` | Advanced Webhooks | The Studio host's content service cannot write outside a signed-in request — update Studio CE | — |
 | `404` | `WEBHOOK_DELIVERY_NOT_RETRYABLE` | Advanced Webhooks | The delivery cannot be retried | `deliveryId` |
 | `401` | `REALTIME_TOKEN_MISSING` · `REALTIME_TOKEN_INVALID` | Real-time | WebSocket connection without a valid token | — |
 | `400` | `VERSION_RETENTION_INVALID` | Version Comparison | Invalid retention setting | — |
