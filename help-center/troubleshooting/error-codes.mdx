@@ -204,7 +204,7 @@ For `ACTION_PREVENTED`, the API message is the specific veto reason and is shown
 
 ## Code reference
 
-The tables below list every code of the AI gateway and the Integration Hub, and the codes of the other plugins that admins and integrators run into most. The complete, current set of codes with a screen text is each plugin's English catalog, served by your Studio:
+The tables below list every code of the AI gateway and the Integration Hub, the codes AI assistants meet, and the codes of the other plugins that admins and integrators run into most. The complete, current set of codes with a screen text is each plugin's English catalog, served by your Studio:
 
 ```bash
 curl https://studio.example.com/api/v1/plugins/pro-workflows/ui/i18n/en.json
@@ -212,6 +212,17 @@ curl https://studio.example.com/api/v1/plugins/pro-workflows/ui/i18n/en.json
 ```
 
 Codes that are not in a catalog are protocol or developer errors; their English `message` explains them.
+
+### AI Assistants (MCP Gateway)
+
+Requests from AI assistants through the roadbeat MCP Gateway. No Pro screen shows these codes, so they have no catalog text — the gateway turns them into tool errors the assistant explains. See [AI Assistants (MCP)](/ai-assistants).
+
+| Status | Code | Meaning | `params` |
+|---|---|---|---|
+| `403` | `OAUTH_ROUTE_FORBIDDEN` | The route is not open to AI assistants. In Studio Pro only reading and moving a workflow and the AI gateway's MCP tools are | — |
+| `403` | `OAUTH_SCOPE_REQUIRED` | Moving a workflow or calling an AI tool needs a token with `studio:write` (or `studio:publish` / `studio:admin`) | — |
+
+Workflow rules and AI limits answer an assistant with the same codes as a person — `WORKFLOW_ROLE_REQUIRED`, `WORKFLOW_SELF_APPROVAL`, `AI_BUDGET_EXCEEDED` and so on, listed below.
 
 ### AI Provider Gateway
 

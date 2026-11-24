@@ -67,6 +67,12 @@
                 "title": "AI Privacy & Governance",
                 "path": "plugins/ai-governance",
                 "icon": "shield"
+              },
+              {
+                "title": "AI Assistants (MCP)",
+                "path": "ai-assistants",
+                "icon": "bot",
+                "badge": "New"
               }
             ]
           },

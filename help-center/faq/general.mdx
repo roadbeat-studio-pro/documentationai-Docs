@@ -53,4 +53,10 @@ description: Frequently asked questions about Studio Pro plugins, licensing, and
 
 <Expandable title="Do Pro plugins have their own authentication?" default-open="false">
   No. Pro plugins use the same JWT authentication as CE. All Pro endpoints require a valid JWT token obtained via `POST /api/v1/auth/login`. Some endpoints additionally require admin role.
+
+  Tokens of AI assistants (issued to the roadbeat MCP Gateway) are refused by default; only the few Pro routes listed in [AI Assistants (MCP)](/ai-assistants) accept them.
+</Expandable>
+
+<Expandable title="Can AI assistants such as Claude or ChatGPT work with Studio Pro?" default-open="false">
+  Yes, through the roadbeat **MCP Gateway**. Besides what Studio CE offers (reading, drafting, translating and publishing content), an assistant can read and move an item's editorial workflow — request a review, approve — and use the AI gateway's tools (translate, summarize, classify, extract, alt text). It acts as the user who connected it, never with more rights than that user, and Studio enforces role gates, the four-eyes rule, AI budgets and redaction exactly as for people. Its content changes are marked as such in the audit log. See [AI Assistants (MCP)](/ai-assistants).
 </Expandable>

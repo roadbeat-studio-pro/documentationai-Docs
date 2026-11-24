@@ -1,0 +1,146 @@
+---
+title: AI Assistants (MCP)
+description: What AI assistants such as Claude, ChatGPT or Cursor can do in Studio Pro through the roadbeat MCP Gateway — workflow steps, Studio AI tools, and an audit trail that marks their changes.
+---
+
+## Overview
+
+AI assistants reach your organization's Studio through the **roadbeat MCP Gateway**. A user signs in with their Studio account and approves the app; from then on the assistant acts **as that user**, with a token whose scopes cap what it may do. Studio CE already lets assistants read, draft, translate and publish content — see [AI Apps (MCP)](https://studio-docs.roadbeat.net/guides/ai-apps) in the Studio docs.
+
+Studio Pro adds three things on top:
+
+<Columns cols={3}>
+  <Card title="Workflow steps" icon="git-branch" href="/ai-assistants#editorial-workflows">
+    Assistants read a content item's workflow, request a review and approve — under the workflow's own rules.
+  </Card>
+  <Card title="Studio AI tools" icon="sparkles" href="/ai-assistants#studio-ai-tools">
+    Translate, summarize, classify, extract and write alt text through your organization's governed AI gateway.
+  </Card>
+  <Card title="Audit attribution" icon="clipboard-list" href="/ai-assistants#audit-trail">
+    Content changes an assistant makes are marked as such in the audit log.
+  </Card>
+</Columns>
+
+<Callout kind="info">
+  There is nothing to switch on in Studio Pro. The gateway asks your Studio which Pro plugins are active (`GET /api/v1/plugins/manifest`) and offers the matching tools only then — a plugin you activate or deactivate shows up in the assistant's tool list within five minutes. Setting up the gateway and Studio's sign-in for it is covered in the [MCP Gateway docs](https://mcp-gateway-docs.roadbeat.net/self-hosting/authorization-servers).
+</Callout>
+
+<Callout kind="alert">
+  Needs Pro plugin builds from **2026-11-09** or later, on a Studio CE that acts as the MCP Gateway's sign-in and marks assistant changes with their origin. Older plugin builds refuse assistant tokens on these routes with `403 OAUTH_ROUTE_FORBIDDEN` — the gateway's workflow and AI tools fail — and their audit log records assistant changes like UI changes.
+</Callout>
+
+## What an assistant can reach
+
+Studio refuses AI-assistant tokens **by default** — only routes that are explicitly opened to them accept them. In Studio Pro these are:
+
+| Plugin | Studio route | Gateway tools | Scope |
+|---|---|---|---|
+| [Editorial Workflows](/plugins/workflows) | `GET /api/v1/pro/workflows/instances/:contentId` | `studio_get_workflow` | `studio:read` |
+| [Editorial Workflows](/plugins/workflows) | `POST /api/v1/pro/workflows/instances/:contentId/transition` | `studio_request_review`, `studio_approve_review` | `studio:write` |
+| [AI Provider Gateway](/plugins/ai) | `GET /api/v1/pro/ai/mcp/tools` | — (the gateway reads the tool list) | `studio:read` |
+| [AI Provider Gateway](/plugins/ai) | `POST /api/v1/pro/ai/mcp/call` | `studio_ai_translate`, `studio_ai_summarize`, `studio_ai_classify`, `studio_ai_extract`, `studio_ai_alt_text` | `studio:write` |
+
+Every other Pro endpoint — workflow definitions, starting or assigning a workflow, tasks, the audit log, AI provider and budget settings, roles, SSO and the rest — answers an assistant's token with `403 OAUTH_ROUTE_FORBIDDEN`, whatever scopes the token holds. Those stay with the people who use Studio.
+
+### Scopes and roles
+
+Studio applies the **lower** of two roles: the user's own role, and the role the token's scopes allow.
+
+| Token scopes | Role at most |
+|---|---|
+| `studio:read` | Viewer |
+| `studio:write` or `studio:publish` | Editor |
+| `studio:admin` | Admin |
+
+So an assistant never does more than the user could, and a read-only token never acts as an editor. Moving a workflow and running an AI tool need `studio:write` (`studio:publish` and `studio:admin` include it); with a read-only token, Studio answers `403 OAUTH_SCOPE_REQUIRED`. The scopes themselves are explained in the MCP Gateway docs under [Scopes](https://mcp-gateway-docs.roadbeat.net/accounts/scopes).
+
+## Editorial workflows
+
+With [Editorial Workflows](/plugins/workflows) active, an assistant can:
+
+- **Read the workflow** of a content item — its current state, whether that state allows publishing, the transitions out of it (with their required roles and whether they need a comment) and the history.
+- **Move it** — the gateway's `studio_request_review` takes the transition whose action or target mentions *review* (for example *Submit for review*); `studio_approve_review` takes the one that mentions *approve* and asks the user to confirm first.
+
+Studio applies the workflow's rules to an assistant exactly as to the person it acts for:
+
+- **Role gates** (`requiredRoles`) check the role described above — `403 WORKFLOW_ROLE_REQUIRED` otherwise.
+- **Mandatory comments** (`requiresComment`) — without one the transition fails with `400 WORKFLOW_COMMENT_REQUIRED`, and the assistant asks the user for a comment.
+- **Four-eyes rule** (`noSelfApproval`) — the content's author cannot approve it through an assistant either (`403 WORKFLOW_SELF_APPROVAL`).
+- **Concurrency** — a transition that loses a race gets `409 WORKFLOW_STATE_CONFLICT`.
+- **History** — the transition and its comment are recorded under the user the assistant acts for.
+
+Starting a workflow for existing content, assigning it, working on tasks and editing workflow definitions stay in Studio.
+
+<Callout kind="tip">
+  Want someone other than the author to sign off everything an assistant helped write? Bind a workflow with a publish guard to the content type and turn on the **four-eyes rule** for *Approve*. The author's assistant can draft and submit for review; the approval has to come from another person — and if that person uses an assistant, the gateway asks them to confirm it.
+</Callout>
+
+## Studio AI tools
+
+With the [AI Provider Gateway](/plugins/ai) active, the MCP Gateway reads its tool list — `ai_translate`, `ai_summarize`, `ai_classify`, `ai_extract` and `ai_alt_text` — and offers the tools to assistants as `studio_ai_translate`, `studio_ai_summarize` and so on. Each call runs through the **same governed pipeline** as an editor's own AI request:
+
+- your organization's **routing and residency** mode and its configured providers,
+- **PII redaction** before cloud egress, and the organization's consent for non-EU providers — an assistant cannot give that consent,
+- the **organization and user budgets**, the per-user rate limit and the license ceilings,
+- **metering and the AI audit log** — calls are recorded with the caller `mcp`, so they show up separately in the usage dashboard's **By caller** view.
+
+Because calls spend the organization's AI budget, they need `studio:write`. In addition, the MCP Gateway asks the user once per app before the first call (consent class `network_call`) and hands results to the assistant as untrusted, AI-generated text. Details: [AI Privacy & Governance](/plugins/ai-governance).
+
+## Audit trail
+
+[Audit Logging](/plugins/audit) records the content changes an assistant makes — create, update, publish and delete — like any other change, attributed to the user it acts for. In addition, the entry carries the change's **origin** in `metadata`:
+
+```json
+{
+  "action": "update",
+  "resource": "content",
+  "category": "content",
+  "metadata": {
+    "origin": {
+      "kind": "ai_assistant",
+      "client": "https://assistant.example.com/oauth/client-metadata.json",
+      "via": "roadbeat-mcp-gateway"
+    }
+  }
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `kind` | `ai_assistant` — the change came from an AI assistant through the MCP Gateway |
+| `client` | The AI app the user authorized: its OAuth client id, often the URL of its client metadata document |
+| `via` | The client that called Studio on the assistant's behalf — the MCP Gateway (`roadbeat-mcp-gateway`, or the id set in Studio's `OAUTH_GATEWAY_CLIENT_ID`) |
+
+Changes made in the Studio UI carry no origin, so their entries look exactly as before. Changes made through the Studio Integration API are marked the same way, with `kind: "integration"`, the OAuth client id (or `apikey:<id>`) in `client` and the integration's display name in `clientName`.
+
+You see the origin in the **Metadata** block of an entry's detail view, in `GET /api/v1/pro/audit/entry/:id` and in the JSON export. The CSV export has fixed columns and does not include `metadata`.
+
+## Errors
+
+| Status | Code | When |
+|---|---|---|
+| `403` | `OAUTH_ROUTE_FORBIDDEN` | The Studio route is not open to AI assistants |
+| `403` | `OAUTH_SCOPE_REQUIRED` | Moving a workflow or running an AI tool with a token without `studio:write` |
+| `403` | `WORKFLOW_ROLE_REQUIRED` · `WORKFLOW_SELF_APPROVAL` | A role gate or the four-eyes rule blocks the transition |
+| `400` | `WORKFLOW_COMMENT_REQUIRED` | The transition needs a comment |
+| `409` | `WORKFLOW_STATE_CONFLICT` | Someone else moved the workflow first |
+| `429` | `AI_RATE_LIMITED` · `AI_BUDGET_EXCEEDED` · `AI_LICENSE_LIMIT_EXCEEDED` | A rate limit, budget or license ceiling of the AI gateway is reached |
+
+The MCP Gateway turns them into tool errors the assistant can explain to the user. Every code is listed in [API Error Codes](/help-center/troubleshooting/error-codes).
+
+## Related
+
+<Columns cols={2}>
+  <Card title="AI Apps (MCP) in Studio" icon="plug" href="https://studio-docs.roadbeat.net/guides/ai-apps" target="_blank">
+    Connected AI apps, personal access tokens and sign-in apps in Studio CE.
+  </Card>
+  <Card title="Studio tools of the MCP Gateway" icon="wrench" href="https://mcp-gateway-docs.roadbeat.net/tools/studio" target="_blank">
+    Every Studio tool an assistant can call, from the gateway's side.
+  </Card>
+  <Card title="Editorial Workflows" icon="git-branch" href="/plugins/workflows">
+    States, transitions, role gates and the four-eyes rule.
+  </Card>
+  <Card title="Audit Logging" icon="clipboard-list" href="/plugins/audit">
+    The tamper-evident audit trail and its exports.
+  </Card>
+</Columns>

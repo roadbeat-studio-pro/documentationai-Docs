@@ -2,6 +2,61 @@
 title: Changelog
 description: Release notes and updates for roadbeat Studio Pro plugins.
 ---
+<Update label="2026-11-09" description="AI assistants via the MCP Gateway — workflow steps, Studio AI tools, and audit attribution" tags={["feature","security"]}>
+  ## AI Assistants via the MCP Gateway
+
+  AI assistants such as Claude, ChatGPT or Cursor that a user connects
+  through the roadbeat **MCP Gateway** can now use three Studio Pro plugins.
+  They act as that user, with at most the role their token's scopes allow,
+  and every other Pro API keeps refusing them. New page:
+  [AI Assistants (MCP)](/ai-assistants).
+
+  ### Editorial Workflows
+
+  - **Read and move a workflow.** `GET /pro/workflows/instances/:contentId`
+    and `POST /pro/workflows/instances/:contentId/transition` accept the
+    gateway's AI-assistant tokens. The gateway offers them as
+    `studio_get_workflow`, `studio_request_review` and
+    `studio_approve_review` (the last one asks the user to confirm).
+  - **Same rules as for people.** Role gates, mandatory comments, the
+    four-eyes rule and the concurrency check apply unchanged; the history
+    entry is recorded under the user. Moving a workflow needs
+    `studio:write` — a read-only token gets `403 OAUTH_SCOPE_REQUIRED`.
+    Starting or assigning a workflow, tasks and definitions stay in Studio.
+    See [AI Assistants and Workflows](/plugins/workflows#ai-assistants-and-workflows).
+
+  ### AI Provider Gateway
+
+  - **MCP tools open to AI assistants.** `GET /pro/ai/mcp/tools` and
+    `POST /pro/ai/mcp/call` accept the gateway's tokens, so assistants can
+    use `ai_translate`, `ai_summarize`, `ai_classify`, `ai_extract` and
+    `ai_alt_text` (as `studio_ai_*`).
+  - **Governed like an editor's own request.** Routing, residency, PII
+    redaction, non-EU consent, budgets, the per-user rate limit and the AI
+    audit log apply; calls are metered with the caller `mcp`. A call spends
+    the organization's AI budget, so it needs `studio:write`. See
+    [MCP Tools for AI Assistants](/plugins/ai#mcp-tools-for-ai-assistants).
+
+  ### Audit Logging
+
+  - **Assistant changes are marked.** Content create, update, publish and
+    delete entries made through the MCP Gateway carry
+    `metadata.origin` — `kind: "ai_assistant"`, the AI app the user
+    authorized (`client`) and the gateway (`via`). Changes through the
+    Studio Integration API are marked with `kind: "integration"`.
+  - Entries for changes made in the Studio UI keep their exact shape. The
+    origin is part of the hash chain and shows in the detail view, the API
+    and the JSON export (not in the CSV export). See
+    [Changes by AI Assistants and Integrations](/plugins/audit#changes-by-ai-assistants-and-integrations).
+
+  ### Errors
+
+  - New `403 OAUTH_SCOPE_REQUIRED` when an assistant's token lacks the write
+    scope. Studio's `403 OAUTH_ROUTE_FORBIDDEN` for routes that are not open
+    to assistants is documented alongside it. See
+    [API Error Codes](/help-center/troubleshooting/error-codes#ai-assistants-mcp-gateway).
+</Update>
+
 <Update label="2026-11-09" description="Fixes found while documenting — SCIM with Entra ID and Okta, incoming webhooks, scheduled audit retention, AI source guard, workflow form" tags={["bugfix","security"]}>
   ## Fixes Found While Documenting
 

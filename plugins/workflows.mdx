@@ -27,6 +27,7 @@ The plugin also provides the organization's [Tasks & Task Board](/plugins/tasks)
 - **Auto-initialization** — new content of a bound type starts in the workflow's initial state; existing content can be started from the editor sidebar
 - **Workflow builder** — templates, simulation, analysis, import/export
 - **Content templates** — reusable pre-filled drafts per content type
+- **AI assistants** — through the roadbeat MCP Gateway, an assistant can read an item's workflow, request a review and approve, under the same rules as people. See [AI Assistants and Workflows](/plugins/workflows#ai-assistants-and-workflows)
 
 ## For Admins: Setting Up Workflows
 
@@ -205,6 +206,26 @@ Content created **before** its type was bound to a workflow has no workflow inst
 
 Entering a state with a task rule creates a **task** for the reviewer. Tasks — from workflows and created by hand — live on the **Tasks** board, and the **Tasks** menu item shows a badge with your open tasks. See [Tasks & Task Board](/plugins/tasks).
 
+## AI Assistants and Workflows
+
+Editors who connect an AI assistant (Claude, ChatGPT, Cursor, …) through the **roadbeat MCP Gateway** can let it handle the routine workflow steps. The gateway offers these tools only while this plugin is active:
+
+| Gateway tool | What it does | Studio route | Scope |
+|---|---|---|---|
+| `studio_get_workflow` | Current state, whether it allows publishing, the possible next steps (required roles, comment needed) and the latest history | `GET /api/v1/pro/workflows/instances/:contentId` | `studio:read` |
+| `studio_request_review` | Takes the transition whose action or target mentions *review* | `POST /api/v1/pro/workflows/instances/:contentId/transition` | `studio:write` |
+| `studio_approve_review` | Takes the transition whose action or target mentions *approve* — after the user confirms | `POST /api/v1/pro/workflows/instances/:contentId/transition` | `studio:write` |
+
+The assistant acts **as the user** who connected it, with at most the role the token's scopes allow, and the transition is enforced exactly as for a person: `requiredRoles`, `requiresComment`, the four-eyes rule and the concurrency check all apply, and the history entry is recorded under that user. A token without `studio:write` cannot move a workflow (`403 OAUTH_SCOPE_REQUIRED`).
+
+Only these two routes are open to assistants. Starting or assigning a workflow, tasks and workflow definitions answer `403 OAUTH_ROUTE_FORBIDDEN` and stay in Studio.
+
+<Callout kind="tip">
+  Turn on the **four-eyes rule** for *Approve* if content an assistant helped write should always be signed off by someone other than its author — the author's assistant can then submit for review, but not approve.
+</Callout>
+
+More on scopes, the AI tools and audit attribution: [AI Assistants (MCP)](/ai-assistants).
+
 ## API Reference
 
 All workflow endpoints are documented in the [Studio API Reference](https://docs.studio.roadbeat.dev/api-reference/overview) under the `pro-workflows` tag. Key endpoints:
@@ -216,10 +237,10 @@ All workflow endpoints are documented in the [Studio API Reference](https://docs
 | `PUT /api/v1/pro/workflows/definitions/:id` | Update a workflow (structural edits create a new version) |
 | `POST /api/v1/pro/workflows/definitions/seed` | Seed the "Editorial Review" workflow if the organization has none |
 | `POST /api/v1/pro/workflows/definitions/:id/migrate-instances` | Migrate in-flight instances to the current version |
-| `GET /api/v1/pro/workflows/instances/:contentId` | Get workflow state for content |
+| `GET /api/v1/pro/workflows/instances/:contentId` | Get workflow state for content (also open to [AI assistants](/plugins/workflows#ai-assistants-and-workflows)) |
 | `GET /api/v1/pro/workflows/instances/:contentId/startable` | Workflows that can be started by hand for an item (`canStart`, `workflows`) |
 | `POST /api/v1/pro/workflows/instances/:contentId/initialize` | Start a workflow for an item (`{ "workflowId": "…" }`) |
-| `POST /api/v1/pro/workflows/instances/:contentId/transition` | Transition to a new state (enforces roles, comments and the four-eyes rule; `409` on concurrent transitions) |
+| `POST /api/v1/pro/workflows/instances/:contentId/transition` | Transition to a new state (enforces roles, comments and the four-eyes rule; `409` on concurrent transitions). Also open to [AI assistants](/plugins/workflows#ai-assistants-and-workflows) with `studio:write` |
 | `POST /api/v1/pro/workflows/instances/:contentId/assign` | Set the responsible assignee for an instance |
 | `GET /api/v1/pro/templates` | List content templates |
 

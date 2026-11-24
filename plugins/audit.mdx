@@ -12,7 +12,7 @@ The **Audit Logging** plugin provides a comprehensive, append-only audit trail f
 - **Append-only, tamper-evident entries** — every action is logged with actor, resource, changes, severity, and category, linked into a per-organization SHA-256 hash chain
 - **Chain verification** — one call walks the chain and reports the first broken link, so careless or accidental edits and deletions are detectable
 - **Change tracking** — old vs new field values stored as JSONB diffs, with secret-like fields redacted on every write
-- **Correct attribution** — user and role changes are recorded against the admin who made them
+- **Correct attribution** — user and role changes are recorded against the admin who made them; content changes an AI assistant made through the MCP Gateway are marked with their [origin](/plugins/audit#changes-by-ai-assistants-and-integrations)
 - **Compliance reports** — generate GDPR, user-access, data-changes, permission-changes, and API-access reports
 - **Complete exports** — download **all** matching audit logs as JSON or CSV (no silent row cap); CSV cells are guarded against spreadsheet formula injection
 - **GDPR erasure support** — when a user is erased, their audit rows are pseudonymized in place with a server-keyed pseudonym and the chain is re-linked
@@ -95,6 +95,38 @@ The plugin automatically logs these events:
 Content entries are attributed to the editor who made the change. User entries and the `role_change` entry are attributed to the **admin who performed the change**, not to the affected user; changes made by the system or by users themselves (self-service) carry no actor and show as *System*. Failed logins are not recorded, because CE emits them without an organization context.
 
 Every action can be used as a filter, including `erase` and `unlock`.
+
+### Changes by AI Assistants and Integrations
+
+When a content change (create, update, publish, delete) was not made in the Studio UI but by an **AI assistant** through the roadbeat MCP Gateway, the entry is still attributed to the user the assistant acted for — and additionally records **where the change came from** in `metadata.origin`:
+
+```json
+{
+  "action": "publish",
+  "resource": "content",
+  "user_id": "3f2a…",
+  "metadata": {
+    "origin": {
+      "kind": "ai_assistant",
+      "client": "https://assistant.example.com/oauth/client-metadata.json",
+      "via": "roadbeat-mcp-gateway"
+    }
+  }
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `kind` | `ai_assistant` for the MCP Gateway; `integration` for an outside product using the Studio Integration API |
+| `client` | The app the user authorized — its OAuth client id (for AI apps often the URL of a client metadata document), or `apikey:<id>` for an organization API key |
+| `via` | AI assistants only: the client that called Studio for them — the MCP Gateway (`roadbeat-mcp-gateway` by default) |
+| `clientName` | Integrations only: the display name of the integration |
+
+- **UI changes are unchanged.** Entries for changes made in Studio itself carry no origin, so their shape is exactly as before.
+- **Where to see it:** the **Metadata** block of an entry's detail view, `GET /api/v1/pro/audit/entry/:id`, `GET /api/v1/pro/audit` and the JSON export. The CSV export has fixed columns and leaves `metadata` out.
+- The origin is part of the hashed entry, so the tamper-evidence chain covers it.
+
+What assistants may do in Studio Pro in the first place: [AI Assistants (MCP)](/ai-assistants).
 
 ### Retention Policies
 

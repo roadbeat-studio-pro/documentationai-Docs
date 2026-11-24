@@ -14,6 +14,7 @@ studio-pro-docs/
 ├── licensing.mdx               # License tokens, validation, grace period
 ├── languages.mdx               # 24 EU languages, plural forms, translated errors
 ├── accessibility.mdx           # WCAG 2.1 AA design rules and how they are tested
+├── ai-assistants.mdx           # What AI assistants can do via the MCP Gateway (workflows, AI tools, audit origin)
 ├── plugins/                    # Per-plugin documentation
 │   ├── ai.mdx                  # AI Provider Gateway
 │   ├── ai-recipes.mdx          #   Provider setup recipes

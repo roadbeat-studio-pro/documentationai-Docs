@@ -24,7 +24,7 @@ It unifies self-hosted models (Augmentor / Ollama), EU cloud (Mistral, Azure Ope
 - **Cost control** — org/per-user token & cost budgets, per-user rate limits, license-tier ceilings, and a burn-down dashboard
 - **Structured, schema-first generation** — drafts validated against your content-type JSON Schema (AJV 2020-12) with automatic re-prompting
 - **In-editor assistance** — a sidebar assistant and per-field ✨ actions, every suggestion shown as an accept/reject diff
-- **Shared backbone** — sibling Pro plugins (e.g. the Studio Agent) consume the same gateway via the `AI_SERVICE` contract; capabilities are also exposed as **MCP tools**
+- **Shared backbone** — sibling Pro plugins (e.g. the Studio Agent) consume the same gateway via the `AI_SERVICE` contract; capabilities are also exposed as **MCP tools**, which AI assistants such as Claude or ChatGPT can call through the roadbeat MCP Gateway — see [MCP Tools for AI Assistants](/plugins/ai#mcp-tools-for-ai-assistants)
 - **Full audit trail** — every call is metered and logged (privacy-preserving hashes by default)
 - **SSRF-safe media sources** — image and audio URLs for vision and transcription are fetched under a guard and handed to the provider as data, never as a URL
 - **Coded, translated errors** — every failure carries a stable `code` and `params`; a failing provider is a `502` that names it, not an opaque `500`. See [API Error Codes](/help-center/troubleshooting/error-codes)
@@ -223,6 +223,26 @@ Sibling Pro plugins inject the gateway through the shared `AI_SERVICE` token rat
 
 The same capabilities are exposed as **MCP tools** (`GET /api/v1/pro/ai/mcp/tools`, `POST /api/v1/pro/ai/mcp/call`), so external AI tooling can call the governed gateway with the exact same guarantees.
 
+### MCP Tools for AI Assistants
+
+The roadbeat **MCP Gateway** lets users connect AI assistants (Claude, ChatGPT, Cursor, …) to their Studio. While `pro-ai` is active, the gateway reads the tool list and offers each tool to the assistant with a `studio_` prefix:
+
+| Studio tool | Gateway tool | What it does |
+|---|---|---|
+| `ai_translate` | `studio_ai_translate` | Translate text between locales, glossary- and tone-aware |
+| `ai_summarize` | `studio_ai_summarize` | Summarize text |
+| `ai_classify` | `studio_ai_classify` | Classify text by topic or sentiment |
+| `ai_extract` | `studio_ai_extract` | Extract entities or fields from text |
+| `ai_alt_text` | `studio_ai_alt_text` | Write accessibility alt text for an image (by URL or base64) |
+
+Both routes accept the gateway's AI-assistant tokens, which act as the signed-in user with at most the role their scopes allow:
+
+- **Listing** the tools needs `studio:read`.
+- **Calling** a tool spends the organization's AI budget, so the token needs `studio:write` — otherwise Studio answers `403 OAUTH_SCOPE_REQUIRED`.
+- Every call goes through the governed pipeline above: routing and residency, PII redaction, the organization's non-EU consent, budgets, the per-user rate limit, metering and the AI audit log. Calls are metered with the caller `mcp`, so the usage dashboard shows assistant spend separately.
+
+The gateway additionally asks each user once per app before the first call (consent class `network_call`) and hands results to the assistant as untrusted, AI-generated text. See [AI Assistants (MCP)](/ai-assistants).
+
 <Callout kind="tip" collapsed="false">
   When `pro-ai` is **not** installed, dependent features degrade gracefully — AI surfaces are hidden and CE auto-translate falls back to its configured machine-translation provider.
 </Callout>
@@ -291,7 +311,7 @@ All endpoints live under `/api/v1/pro/ai` and are documented in the [Studio API 
 | `GET /api/v1/pro/ai/prompts`             | List prompts (org + global defaults)           |
 | `POST /api/v1/pro/ai/prompts`            | Create a prompt (new version of key + locale)  |
 | `GET /api/v1/pro/ai/status`              | Plugin status / health probe                   |
-| `GET /api/v1/pro/ai/mcp/tools`           | List AI capabilities exposed as MCP tools      |
-| `POST /api/v1/pro/ai/mcp/call`           | Invoke an AI tool through the governed gateway |
+| `GET /api/v1/pro/ai/mcp/tools`           | List AI capabilities exposed as MCP tools (open to AI-assistant tokens) |
+| `POST /api/v1/pro/ai/mcp/call`           | Invoke an AI tool through the governed gateway (AI-assistant tokens need `studio:write`) |
 
 Governance, usage, and budget endpoints are listed in [AI Privacy & Governance](/plugins/ai-governance#api-reference).
